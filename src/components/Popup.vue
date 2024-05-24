@@ -13,7 +13,10 @@
                 </div>
                 <div class="actions" v-if="type == 'update'">
                     <a class="btn" @click="update">
-                        Aktualizovat
+                        {{ str.update.do }}
+                    </a>
+                    <a class="btn" @click="ignoreUpdate(), close()">
+                        {{ str.update.ignore }}
                     </a>
                 </div>
             </div>
@@ -58,6 +61,9 @@ export default {
         },
         update() {
             this.$emit('update');
+        },
+        ignoreUpdate() {
+            this.$emit('ignoreUpdate');
         }
     }
 };

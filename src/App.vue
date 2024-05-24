@@ -13,7 +13,7 @@ import UpdateCheck from "./components/UpdateCheck.vue";
     <UpdateCheck />
   </div>
   <div class="view" v-else>
-    <h1>Pro fungování se musíte připojit k internetu.</h1>
+    <h1>{{ str.no_internet }}</h1>
   </div>
 </template>
 <script>

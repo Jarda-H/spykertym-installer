@@ -11,6 +11,14 @@ const app = createApp(App)
 app.config.globalProperties.str = {
     server_error: "Chyba na straně serveru, zkuste to prosím později.",
     steam_open_error: "Nepodařilo se otevřít Steam.",
+    no_internet: "Pro fungování se musíte připojit k internetu.",
+
+    update: {
+        title: "Aktualizace",
+        body: "Je dostupná nová verze aplikace.",
+        ignore: "Ignorovat po dobu 7 dní",
+        do: "Aktualizovat",
+    }
 }
 
 // app.config.globalProperties.API_ENDPOINT = 'https://spykertym.cz/app/';

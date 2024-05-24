@@ -3,9 +3,9 @@ import { getVersion } from '@tauri-apps/api/app';
 import Popup from "./Popup.vue";
 </script>
 <template>
-    <Popup :active="updateAvailable" title="Je dostupná aktualizace"
-        :body="`Nová verze aplikace. Aktuální verze: ${currentVersion}, nová verze: ${removeVersion}.`" type="update"
-        @close="updateAvailable = false" @update="updateTheApp" />
+    <Popup :active="updateAvailable" :title="str.update.title"
+        :body="`${str.update.body} Aktuální verze: ${currentVersion}, nová verze: ${removeVersion}.`" type="update"
+        @close="updateAvailable = false" @update="updateTheApp" @ignoreUpdate="ignoreUpdate" />
 </template>
 <script>
 export default {
@@ -18,6 +18,13 @@ export default {
         };
     },
     async mounted() {
+        //check if the update was ignored
+        let ignore = localStorage.getItem("updateIgnore");
+        if (ignore) {
+            let now = new Date().getTime();
+            if (now < ignore) return;
+        }
+        //get the current version
         this.currentVersion = await getVersion();
         //check for updates
         fetch(this.API_ENDPOINT + "version")
@@ -53,7 +60,17 @@ export default {
 
             //close the popup
             this.updateAvailable = false;
-        }
+        },
+        ignoreUpdate() {
+            //ignore the update for 7 days
+            let date = new Date();
+            date.setDate(date.getDate() + 7);
+            let timestamp = date.getTime();
+            localStorage.setItem("updateIgnore", timestamp);
+
+            //close the popup
+            this.updateAvailable = false;
+        },
     },
 };
 </script>

@@ -18,9 +18,6 @@ import Popup from "./Popup.vue";
                 <img src="../assets/loading.svg" alt="loading icon">
             </div>
             <div class="header">
-                <!-- <img :src="'https://cdn.akamai.steamstatic.com/steam/apps/' + getIDfromURL(game.steam) + '/page_bg_raw.jpg'"
-                    alt="icon {{game.hra}}">
-                <div class="dimm-img"></div> -->
                 <h1>{{ game.hra }}</h1>
                 <p>game version {{ game_version }}</p>
             </div>
