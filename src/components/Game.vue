@@ -328,6 +328,16 @@ export default {
             this.game_patch_offset = 0;
             //
             this.loading = true;
+            // reset the progress to 0
+            if (this.$refs.procenta) {
+                for (let i = 0; i < this.$refs.procenta.length; i++) {
+                    let ref = this.$refs.procenta[i];
+                    let text = ref.querySelector("span");
+                    text.textContent = "0%";
+                    ref.style.background = `rgba(0, 0, 0, .1)`
+                }
+            }
+
             let data = {};
             await fetch(this.API_ENDPOINT + `get/game?id=${id}`)
                 .then((res) => res.json())
