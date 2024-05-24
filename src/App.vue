@@ -2,6 +2,7 @@
 import Game from "./components/Game.vue";
 import Menu from "./components/Menu.vue";
 import Titlebar from "./components/Titlebar.vue";
+import UpdateCheck from "./components/UpdateCheck.vue";
 </script>
 
 <template>
@@ -9,6 +10,7 @@ import Titlebar from "./components/Titlebar.vue";
   <div class="view" v-if="internet">
     <Menu />
     <Game />
+    <UpdateCheck />
   </div>
   <div class="view" v-else>
     <h1>Pro fungování se musíte připojit k internetu.</h1>

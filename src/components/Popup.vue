@@ -3,11 +3,19 @@
         <div class="content">
             <div class="header">
                 <h2>{{ title }}</h2>
-                <img src="../assets/close.svg" alt="close icon" @click="close" v-if="type == 'close'">
+                <img src="../assets/close.svg" alt="close icon" @click="close"
+                    v-if="['close', 'update'].includes(type)">
                 <img src="../assets/loading.svg" alt="retry icon" @click="reload" v-if="type == 'retry'">
             </div>
             <div class="body">
-                {{ body }}
+                <div class="content">
+                    {{ body }}
+                </div>
+                <div class="actions" v-if="type == 'update'">
+                    <a class="btn" @click="update">
+                        Aktualizovat
+                    </a>
+                </div>
             </div>
         </div>
     </div>
@@ -47,6 +55,9 @@ export default {
         },
         reload() {
             location.reload();
+        },
+        update() {
+            this.$emit('update');
         }
     }
 };
@@ -69,7 +80,7 @@ export default {
     opacity: 0;
 
     &.active {
-        z-index: 1;
+        z-index: 2; // 1 could be an active loader
         opacity: 1;
     }
 }
@@ -91,5 +102,13 @@ img {
 .body {
     padding: 4em;
     background: $bg;
+
+    .actions {
+        margin-top: 1em;
+    }
+
+    .btn {
+        border: 1px solid #20a566;
+    }
 }
 </style>

@@ -771,7 +771,7 @@ export default {
     @include full-height;
 
     background: rgb(0 0 0 / 50%);
-    z-index: 99;
+    z-index: 1;
 
     img {
         width: 100px;
@@ -856,44 +856,6 @@ export default {
 .content {
     padding: 1em;
     margin-bottom: 5em;
-}
-
-.actions {
-    display: flex;
-    justify-content: center;
-    gap: 1em;
-}
-
-.btn {
-    padding: 0.5em 1em;
-    border-radius: 10px;
-    border: none;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    gap: 1em;
-    background-color: $bg;
-    transition: all 0.3s;
-    cursor: pointer;
-    color: white;
-
-    &:hover {
-        background-color: $alt;
-    }
-
-    &.disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    &.danger {
-        background-color: $main2;
-        border-color: $main2 !important;
-    }
-
-    img {
-        width: 2em;
-    }
 }
 
 .tab {
