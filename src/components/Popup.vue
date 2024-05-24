@@ -64,7 +64,7 @@ export default {
     align-items: center;
     border-radius: 10px;
 
-    transition: all .3s ease-in-out;
+    transition: opacity .3s ease-in-out, z-index 0.3s ease-in-out;
     z-index: -1;
     opacity: 0;
 

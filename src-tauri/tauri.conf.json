@@ -41,8 +41,8 @@
         "title": "Spykertym Installer",
         "width": 1400,
         "height": 900,
-        "minWidth": 700,
-        "minHeight": 300,
+        "minWidth": 800,
+        "minHeight": 500,
         "decorations": false
       }
     ],

@@ -855,6 +855,7 @@ export default {
 
 .content {
     padding: 1em;
+    margin-bottom: 5em;
 }
 
 .actions {
@@ -964,7 +965,7 @@ export default {
 
     opacity: 1;
     z-index: 100;
-    transition: all 0.3s;
+    transition: opacity 0.3s ease-in-out, z-index 0.3s ease-in-out;
 
     display: flex;
     justify-content: center;
@@ -1084,6 +1085,7 @@ $res: 10em;
 }
 
 .progress-bar {
+    position: relative;
     height: $res;
     width: $res;
     border-radius: 50%;

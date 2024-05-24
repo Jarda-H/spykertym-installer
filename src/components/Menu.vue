@@ -296,6 +296,10 @@ nav {
     &.selected {
       background-color: $alt;
     }
+
+    @media (max-width: $mobile) {
+      font-size: 0.7em;
+    }
   }
 }
 </style>
