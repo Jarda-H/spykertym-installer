@@ -1,0 +1,41 @@
+$main: #5db6cd;
+$mainD: rgba(93, 182, 205, 0.702);
+$main2: #f04e3e;
+$main3: #20a566;
+
+$mainbg: #2f2f2f;
+$bg: #1a1a1a;
+//$alt: #ff6f61;
+$alt: $main3;
+// breakpoints
+$mobile: 768px;
+$tablet: 1024px;
+$desktop: 1920px;
+// top bar
+$topbar: 30px;
+
+img {
+  max-width: 100%;
+}
+.ml-1 {
+  margin-left: 1em;
+}
+
+input {
+  padding: 0.5em;
+  background-color: $bg;
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  outline: none;
+  border: 1px solid transparent;
+
+  &:focus {
+    border: 1px solid $alt;
+  }
+}
+
+@mixin full-height {
+  height: calc(100vh - #{$topbar});
+  margin-top: $topbar;
+}
