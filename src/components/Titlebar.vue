@@ -1,11 +1,17 @@
 <script setup>
-import { appWindow } from '@tauri-apps/api/window'
+import { appWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
 </script>
 <template>
     <div data-tauri-drag-region class="titlebar">
         <div class="title">
             <img src="../assets/logo.png" alt="Spykertým logo">
-            <h2>Spykertym Installer</h2>
+            <h2>Spykertym Installer
+                <span class="version">{{ version }}
+                    <span v-if="prod">-prod</span>
+                    <span v-else>-dev</span>
+                </span>
+            </h2>
         </div>
         <div class="btns">
             <div class="titlebar-btn min" @click="min">
@@ -32,6 +38,14 @@ import { appWindow } from '@tauri-apps/api/window'
 <script>
 export default {
     name: "Titlebar",
+    data() {
+        return {
+            version: "",
+        }
+    },
+    async mounted() {
+        this.version = await getVersion();
+    },
     methods: {
         min() {
             appWindow.minimize()
@@ -91,5 +105,9 @@ export default {
     &:hover {
         background: rgba(0, 0, 0, 0.2);
     }
+}
+
+.version {
+    font-size: .7em;
 }
 </style>

@@ -8,8 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "b": "tauri build",
-    "d": "tauri dev"
+    "b": "set NODE_ENV=production&& tauri build",
+    "d": "set NODE_ENV=development&& tauri dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^1",
