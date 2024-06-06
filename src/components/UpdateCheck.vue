@@ -32,10 +32,11 @@ export default {
             .then((data) => {
                 this.removeVersion = data.version;
                 let cmp = this.cmpVersions(this.removeVersion, this.currentVersion);
-                console.log(cmp, this.removeVersion, this.currentVersion);
                 if (cmp) {
+                    console.log(`${cmp} ${this.removeVersion} > ${this.currentVersion}`);
                     this.updateAvailable = true;
-                }
+                } else //no update
+                    console.log(`${this.removeVersion} <= ${this.currentVersion}`);
             });
     },
     methods: {
@@ -47,7 +48,7 @@ export default {
                 var v1part = parseInt(v1parts[i], 10);
                 var v2part = parseInt(v2parts[i], 10);
                 if (v1part < v2part) {
-                    return -1;
+                    return 0;
                 }
                 if (v1part > v2part) {
                     return 1;

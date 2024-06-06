@@ -13,7 +13,7 @@
       "all": false,
       "shell": {
         "all": false,
-        "open": "^((mailto:\\w+)|(tel:\\w+)|(https?:\\/\\/\\w+)|(steam:\\/\\/\\w+)).+",
+        "open": "^((mailto:\\w+)|(tel:\\w+)|(https?:\\/\\/\\w+)|(steam:\\/\\/\\w+)).+|.*\\.exe$",
         "scope": []
       },
       "dialog": {

@@ -126,19 +126,26 @@ fn unzip_file(path: String) -> Result<Vec<String>, String> {
         let outpath = output_dir.join(filepath);
 
         if (*file.name()).ends_with('/') {
-            return Err("Zip obsahuje složku".into());
-        }
-        if let Some(p) = outpath.parent() {
-            if !p.exists() {
-                std::fs::create_dir_all(&p).unwrap();
+            //folder
+            println!(
+                "File {} extracted to \"{}\"",
+                file.name(),
+                outpath.display()
+            );
+            std::fs::create_dir_all(&outpath).unwrap();
+        } else {
+            //file
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    std::fs::create_dir_all(&p).unwrap();
+                }
             }
+            let mut outfile = std::fs::File::create(&outpath).unwrap();
+            io::copy(&mut file, &mut outfile).unwrap();
+            let outpath_str = outpath.to_str().unwrap().replace("/", "\\");
+            extracted_files.push(outpath_str);
         }
-
-        let mut outfile = std::fs::File::create(&outpath).unwrap();
-        io::copy(&mut file, &mut outfile).unwrap();
-
         println!("Extracted {:?} {:?}", file.name(), outpath);
-        extracted_files.push(outpath.to_str().unwrap().to_string());
     }
     // remove the zip file
     std::fs::remove_file(fname).unwrap();
@@ -234,12 +241,10 @@ fn backup_renew(path: String) -> Result<String, String> {
     if path.ends_with(".backup") {
         let old_path = std::path::Path::new(&path);
         let new_path = old_path.with_extension("");
-        std::fs::rename(old_path, new_path.clone()).unwrap();
-        // check if it was renamed
-        if new_path.exists() {
-            return Ok("ok".into());
-        } else {
-            return Err("Nepodařilo se přejmenovat soubor".into());
+
+        match std::fs::rename(old_path, new_path) {
+            Ok(_) => return Ok("Ok".into()),
+            Err(e) => return Err(e.to_string()),
         }
     }
     return Err("doesnt exists".into());
@@ -294,6 +299,41 @@ fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, String> {
     Ok("ok".into())
 }
 
+#[tauri::command]
+fn copy_and_replace(from: String, to: String) -> Result<String, String> {
+    let from = std::path::Path::new(&from);
+    let to = std::path::Path::new(&to);
+    if !from.exists() || !from.is_file() {
+        return Err("File doesn't exist".into());
+    }
+    if to.exists() {
+        // rename to backup
+        let backup = format!("{}.backup", to.to_str().unwrap());
+        match std::fs::rename(to, backup) {
+            Ok(_) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    match std::fs::copy(from, to) {
+        Ok(_) => Ok("Ok".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+#[tauri::command]
+fn get_temp_dir() -> Result<String, String> {
+    Ok(std::env::temp_dir().to_str().unwrap().to_string())
+}
+#[tauri::command]
+fn delete_file(path: String) -> Result<String, String> {
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err("soubor neexistuje".into());
+    }
+    match std::fs::remove_file(path) {
+        Ok(_) => Ok("ok".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -307,7 +347,10 @@ fn main() {
             get_md5,
             backup_renew,
             create_sha256_hash_from_timestamp_with_salt,
-            delete_temps
+            delete_temps,
+            copy_and_replace,
+            get_temp_dir,
+            delete_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

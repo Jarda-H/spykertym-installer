@@ -19,16 +19,18 @@ import Popup from "./Popup.vue";
             </div>
             <div class="header">
                 <h1>{{ game.hra }}</h1>
-                <p>game version {{ game_version }}</p>
             </div>
             <div class="content">
                 <div class="tab actions">
-                    <a class="btn" @click="openSteam(game.steam)"
-                        v-if='game.steam.startsWith("https://store.steampowered.com")'>
+                    <a class="btn" @click="openGame" v-if='isInstalled()'>
+                        <img src="../assets/run.svg" alt="Spustit hru">
+                        Spustit hru
+                    </a>
+                    <a class="btn" @click="openLink(game.steam)" v-else-if='isSteamLink(game.steam)'>
                         <img src="../assets/steam.svg" alt="Steam logo">
                         Steam
                     </a>
-                    <a class="btn" @click="openSteam(game.steam)" v-else>
+                    <a class="btn" @click="openLink(game.steam)" v-else>
                         <img src="../assets/cart.svg" alt="Cart ico">
                         Obchod
                     </a>
@@ -47,25 +49,25 @@ import Popup from "./Popup.vue";
                     </a>
                     <a class="btn disabled" v-else>
                         <img src="../assets/install.svg" alt="Install icon">
-                        Patch není dostupný
+                        Čeština není dostupná
                     </a>
                     <a class="btn danger" @click="openUninstallPopup()"
                         v-if="game_version == 'patched' || game_version == 'backup'">
                         <img src="../assets/uninstall.svg" alt="Uninstall icon">
-                        Odinstalovat patch
+                        Odinstalovat češtinu
                     </a>
                 </div>
                 <div class="tab" v-if="game_version == 'patched'">
                     <div class="alert alert-warning" v-if="game_patch_offset != 0">
                         <img src="../assets/alert/warning.svg" alt="warn ico">
-                        <span>Byl vydán nový patch <b>{{ game.patches[0].version }}</b> dne:
-                            <b>{{ game.patches[0].release }}</b>. Vy máte nainstalovaný <b>{{
+                        <span>Byla vydána nová verze češtiny <b>{{ game.patches[0].version }}</b> dne:
+                            <b>{{ game.patches[0].release }}</b>. Vy máte nainstalovanou verzi <b>{{
             game.patches[game_patch_offset].version }}</b></span>
                     </div>
                     <div class="alert alert-info" v-else>
                         <img src="../assets/alert/info.svg" alt="info ico">
-                        <span>Akutálně máte nainstalovaný patch <b>{{ game.patches[game_patch_offset].version }}</b>
-                            vydaný dne: <b>{{ game.patches[game_patch_offset].release }}</b></span>
+                        <span>Akutálně máte nainstalovanou češtinu <b>{{ game.patches[game_patch_offset].version }}</b>
+                            vydanou dne: <b>{{ game.patches[game_patch_offset].release }}</b></span>
                     </div>
                 </div>
                 <div class="tab">
@@ -103,7 +105,7 @@ import Popup from "./Popup.vue";
         </div>
         <div class="install" ref="install" v-bind:class="{ 'hidden': !popupOpen }">
             <div class="step" v-if="installStep == installPages.path">
-                <h2 class="title">Instalace patche</h2>
+                <h2 class="title">Instalace překladu</h2>
                 <div v-if="game && game.patches.length" class="about-patch">
                     <div class="info">
                         <img src="../assets/install/version.svg" alt="">
@@ -138,7 +140,7 @@ import Popup from "./Popup.vue";
                         Přeinstalovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
-                    <a class="btn" @click="install" v-else>
+                    <a class="btn" v-bind:class="{ 'disabled': !isFolderOk }" @click="install" v-else>
                         Instalovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
@@ -146,11 +148,11 @@ import Popup from "./Popup.vue";
             </div>
             <div class="step" v-else-if="installStep == installPages.install">
                 <h2 class="title">Instalace</h2>
-                <div v-html="installLog"></div>
+                <div ref="install-log" class="log" v-html="installLog"></div>
             </div>
             <div class="step" v-else-if="installStep == installPages.done">
                 <h2 class="title">Hotovo</h2>
-                <div class="small" v-html="installLog"></div>
+                <div ref="install-log-after" class="small" v-html="installLog"></div>
                 <p>Instalace byla dokončena</p>
                 <div class="actions">
                     <a class="btn" @click="closeInstallPopup">
@@ -160,7 +162,7 @@ import Popup from "./Popup.vue";
             </div>
             <div class="step" v-else-if="installStep == installPages.error">
                 <h2 class="title">Chyba</h2>
-                <div class="small" v-html="installLog"></div>
+                <div ref="install-log-after-err" class="small" v-html="installLog"></div>
                 <p>Při instalaci nastala chyba!</p>
                 <p>Pokud se chyba opakuje, kontaktujte nás.</p>
                 <div class="actions">
@@ -192,7 +194,8 @@ import Popup from "./Popup.vue";
             </div>
             <div class="step" v-else-if="uninstallStep == 2">
                 <h2 class="title">Odinstalace</h2>
-                <div v-html="uninstallLog"></div>
+                <div class="log" v-html="uninstallLog" ref="uninstall-log"></div>
+                <p>{{ lastSentenceFromUninstallLog }}</p>
                 <div class="actions">
                     <a class="btn" @click="closeUninstallPopup">
                         Zavřít
@@ -274,32 +277,39 @@ export default {
                     if (game_version == "patched" || game_version == "original") {
                         return;
                     }
-                    let aPatches = patch.files;
+                    let zipFiles = patch.files;
                     let countPatched = 0;
-                    for (let i = 0; i < aPatches.length; i++) {
-                        let randomPatch = aPatches[i];
-                        let fileToCheck = gamePath + randomPatch.path;
+                    for (let i = 0; i < zipFiles.length; i++) {
+                        let currentPatch = zipFiles[i];
+                        let fileToCheck = gamePath + currentPatch.path;
+                        if (patch.unzip_path) {
+                            fileToCheck = gamePath + `\\${patch.unzip_path}\\` + currentPatch.path;
+                        }
                         let md5 = await this.getMD5(fileToCheck);
                         // check for backups
                         if (!this.is_backup) {
                             let md5_backup = await this.getMD5(fileToCheck + ".backup");
-                            if (md5_backup == randomPatch.old) {
+                            if (md5_backup == currentPatch.old) {
                                 this.is_backup = true;
                             }
                         }
                         switch (md5) {
-                            case randomPatch.new:
+                            case currentPatch.new:
                                 countPatched++;
                                 break;
-                            case randomPatch.old:
+                            case currentPatch.old:
                                 game_version = "original";
                                 break;
                             default:
                                 game_version = "unknown";
+                                // not a patch, just zip
+                                if (!currentPatch.old) {
+                                    game_version = "original";
+                                }
                                 break;
                         }
                     }
-                    if (countPatched == aPatches.length) {
+                    if (countPatched == zipFiles.length) {
                         this.game_patch_offset = patches.indexOf(patch);
                         game_version = "patched";
                     }
@@ -314,6 +324,7 @@ export default {
         async updateGame(id) {
             this.popupOpen = false; // close popup if is opened
             // default values
+            this.steamPath = "";
             this.game_version = "unknown";
             this.isFolderOk = false;
             this.is_backup = false;
@@ -396,7 +407,7 @@ export default {
                 }, 5);
             }
         },
-        async openSteam(link) {
+        async openLink(link) {
             if (!link) return;
             let steamInstalled = false;
             await invoke('steam_is_installed')
@@ -548,19 +559,25 @@ export default {
             //install
             this.installStep = installPages.install;
             let patch = this.game.patches[0];
+            let isPatch = patch.files[0].hasOwnProperty('old');
             let toDownload = patch.zip;
             let filename = toDownload.split("/").pop();
+            let zipFolder = filename.slice(0, -4);
             let jsonLog = []; //for server logging
             // download this zip
-            this.installLog = `Stahuji zip s patch soubory<br>`;
-            jsonLog.push("[init] Stahování zipu s patch soubory");
+            this.installLog = `Stahuji zip s češtinou<br>`;
+            if (isPatch) {
+                jsonLog.push("[init] Stahování zipu s patch soubory");
+            } else {
+                jsonLog.push("[init] Stahování zipu s češtinou");
+            }
             let error = false;
             await invoke('download', {
                 url: "https://spykertym.cz" + toDownload,
                 filename: filename
             }).then(() => {
-                this.installLog += `Zip s patch soubory byl stažen<br>`;
-                jsonLog.push("[OK] Zip s patch soubory byl stažen");
+                this.installLog += `Zip byl stažen<br>`;
+                jsonLog.push("[OK] Zip byl stažen");
             }).catch((err) => {
                 this.installLog += `Chyba při stahování zipu - ${err}<br>`;
                 jsonLog.push(`[ERROR] Chyba při stahování zipu - ${err}`);
@@ -572,60 +589,88 @@ export default {
                 path: filename
             }).then((files) => {
                 patchFiles = files;
-                this.installLog += `Zip s patch soubory byl extrahován<br>`;
-                jsonLog.push("[OK] Zip s patch soubory byl extrahován");
+                this.installLog += `Zip byl extrahován<br>`;
+                jsonLog.push("[OK] Zip byl extrahován");
             }).catch((err) => {
                 this.installLog += `Chyba při extrahování zipu - ${err}<br>`;
                 jsonLog.push(`[ERROR] Chyba při extrahování zipu - ${err}`);
                 error = true;
             });
             // foreach file run patch
-            await Promise.all(patchFiles.map(async patchFilePath => {
-                //'C:\\Users\\JardaH\\AppData\\Local\\Temp\\3d8cd654a32ce942f0f94c4c8564e535\\Assembly-CSharp.dll.patch'
-                let patchName = patchFilePath.split("\\").pop();
-                // and replace .patch at the end
-                if (!patchName.endsWith('.patch')) {
-                    this.installLog += `Soubor ${patchName} nekončí .patch<br>`;
-                    jsonLog.push(`[ERROR] Soubor ${patchName} nekončí .patch`);
-                    error = true;
-                    return;
-                }
-                patchName = patchName.slice(0, -6);
-                // find filename in json.patch.files
-                let file = patch.files.find((f) => f.patch == patchName);
-                if (!file) {
-                    this.installLog += `Soubor ${patchName} nebyl nalezen v seznamu souborů<br>`;
-                    jsonLog.push(`[ERROR] Soubor ${patchName} nebyl nalezen v seznamu souborů`);
-                    error = true;
-                    return;
-                }
-                let fileToPatch = this.steamPath + file.path;
-                //if backup exists
-                if (this.is_backup && this.game_version == "patched") {
-                    fileToPatch += ".backup";
-                }
-                await invoke('patch_file', {
-                    path: fileToPatch,
-                    patch: patchFilePath
-                }).then(() => {
-                    this.installLog += `Soubor ${file.patch} byl upraven<br>`;
-                    jsonLog.push(`[OK] Soubor ${file.patch} byl upraven`);
-                }).catch((err) => {
-                    if (err.startsWith("xdelta3: target window checksum mismatch: XD3_INVALID_INPUT")) {
-                        this.installLog += `U souboru ${file.patch} - <b>nesedí hash</b>, zkontrolujte jestli už nemáte patch nainstalovaný, popř. ověřte integritu hry<br>`;
-                    } else {
-                        this.installLog += `Chyba při úpravě souboru ${file.patch} - ${err}<br>`;
+            if (isPatch) {
+                await Promise.all(patchFiles.map(async patchFilePath => {
+                    //'C:\\Users\\JardaH\\AppData\\Local\\Temp\\3d8cd654a32ce942f0f94c4c8564e535\\Assembly-CSharp.dll.patch'
+                    let patchName = patchFilePath.split("\\").pop();
+                    // and replace .patch at the end
+                    if (!patchName.endsWith('.patch')) {
+                        this.installLog += `Soubor ${patchName} nekončí .patch<br>`;
+                        jsonLog.push(`[ERROR] Soubor ${patchName} nekončí .patch`);
+                        error = true;
+                        return;
                     }
-                    jsonLog.push(`[ERROR] xdelta3 ${err}`);
-                    error = true;
-                });
-            }));
-            // remove .zip at the end
-            let folder = filename.slice(0, -4);
+                    patchName = patchName.slice(0, -6);
+                    // find filename in json.patch.files
+                    let file = patch.files.find((f) => f.patch == patchName);
+                    if (!file) {
+                        this.installLog += `Soubor ${patchName} nebyl nalezen v seznamu souborů<br>`;
+                        jsonLog.push(`[ERROR] Soubor ${patchName} nebyl nalezen v seznamu souborů`);
+                        error = true;
+                        return;
+                    }
+                    let fileToPatch = this.steamPath + file.path;
+                    //if backup exists
+                    if (this.is_backup && this.game_version == "patched") {
+                        fileToPatch += ".backup";
+                    }
+                    await invoke('patch_file', {
+                        path: fileToPatch,
+                        patch: patchFilePath
+                    }).then(() => {
+                        this.installLog += `Soubor ${file.patch} byl upraven<br>`;
+                        jsonLog.push(`[OK] Soubor ${file.patch} byl upraven`);
+                    }).catch((err) => {
+                        if (err.startsWith("xdelta3: target window checksum mismatch: XD3_INVALID_INPUT")) {
+                            this.installLog += `U souboru ${file.patch} - <b>nesedí hash</b>, zkontrolujte jestli už nemáte patch nainstalovaný, popř. ověřte integritu hry<br>`;
+                        } else {
+                            this.installLog += `Chyba při úpravě souboru ${file.patch} - ${err}<br>`;
+                        }
+                        jsonLog.push(`[ERROR] xdelta3 ${err}`);
+                        error = true;
+                    });
+                    this.scrollLog();
+                }));
+            } else {
+                // just copy files
+                let tmp = await invoke('get_temp_dir');
+                await Promise.all(patchFiles.map(async newFile => {
+                    let newFilename = newFile.split("\\").pop();
+                    let post = newFile.split(tmp + zipFolder).pop();
+                    //upzip path
+                    if (patch.unzip_path) {
+                        post = `\\${patch.unzip_path}` + post;
+                    }
+                    let dest = this.steamPath + post;
+                    console.log(newFile, dest)
+                    await invoke('copy_and_replace', {
+                        from: newFile,
+                        to: dest
+                    }).then(() => {
+                        this.installLog += `Soubor ${newFilename} byl zkopírován<br>`;
+                        jsonLog.push(`[OK] Soubor ${newFilename} byl zkopírován`);
+                    }).catch((err) => {
+                        this.installLog += `Chyba při kopírování souboru ${newFilename} - ${err}<br>`;
+                        jsonLog.push(`[ERROR] Chyba při kopírování souboru ${newFilename} - ${err}`);
+                        jsonLog.push(`[ERROR] from: ${newFile} to: ${dest}`)
+                        error = true;
+                    });
+                    this.scrollLog();
+                }));
+            }
+            // delete patch files
             if (patchFiles.length) {
                 await invoke('delete_temps', {
                     delete: patchFiles,
-                    folder: folder
+                    folder: zipFolder
                 }).then(() => {
                     this.installLog += `Patch soubory byly smazány<br>`;
                     jsonLog.push("[OK] Patch soubory byly smazány");
@@ -634,6 +679,7 @@ export default {
                     jsonLog.push(`[ERROR] Chyba při mazání - ${err}`);
                     error = true;
                 });
+                this.scrollLog();
             }
             if (error) {
                 this.installLog += `Instalace skončila s chybou<br>`;
@@ -647,6 +693,7 @@ export default {
                     }
                 }
                 this.installStep = installPages.error;
+                this.scrollLog();
                 return;
             }
             jsonLog.push("[OK] Instalace byla dokončena");
@@ -656,17 +703,44 @@ export default {
             this.game_version = "patched";
             await this.saveInstalledPatch();
             this.installStep = installPages.done;
+            this.scrollLog();
         },
         async uninstall() {
             this.uninstallLog = "";
-            if (!this.is_backup) {
+            if (!this.is_backup && this.game.patches[0].files[0].hasOwnProperty('old')) {
                 this.uninstallLog += `Hra nemá zálohu<br>Nelze odinstalovat`;
                 this.uninstallStep++;
                 return;
             }
-            let patch = this.game.patches[0];
+            let currentGame = this.getActiveGameID();
+            //search for installed patch
+            let patch = this.game.patches.find((p) =>
+                p.version == this.getInstalledPatchVersion(currentGame)
+            );
+            if (!patch) {
+                patch = this.game.patches[0];
+            }
             //for every patch file
+            let error = false;
             await Promise.all(patch.files.map(async file => {
+                if (!file.old) {
+                    //delete the file
+                    let fileToDelete = this.steamPath + file.path;
+                    if (patch.unzip_path) {
+                        fileToDelete = this.steamPath + `\\${patch.unzip_path}\\` + file.path;
+                    }
+                    let filename = fileToDelete.split("\\").pop();
+                    await invoke('delete_file', {
+                        path: fileToDelete
+                    }).then(() => {
+                        this.uninstallLog += `Soubor ${filename} byl smazán<br>`;
+                    }).catch((err) => {
+                        this.uninstallLog += `Soubor ${filename} nelze smazat - ${err}<br>`;
+                        error = true;
+                    });
+                    this.scrollLog();
+                    return;
+                }
                 let fileToRenew = this.steamPath + file.path + ".backup";
 
                 await invoke('backup_renew', {
@@ -675,12 +749,22 @@ export default {
                     this.uninstallLog += `Soubor ${file.patch} byl obnoven<br>`;
                 }).catch((err) => {
                     this.uninstallLog += `Soubor ${file.patch} nelze obnovit - ${err}<br>`;
+                    error = true;
                 });
+                this.scrollLog();
             }));
+            if (error) {
+                this.uninstallLog += `Odinstalace skončila s chybou<br>`;
+                this.uninstallStep++;
+                this.scrollLog();
+                return;
+            }
             this.uninstallLog += `Odinstalace byla dokončena`;
             this.is_backup = false;
             this.game_version = "original";
             this.uninstallStep++;
+            this.scrollLog();
+            this.removeGameID(currentGame);
         },
         async sendLogToServer(log, success) {
             return new Promise(async (ok, err) => {
@@ -749,6 +833,72 @@ export default {
                 patches = [data];
             }
             localStorage.setItem("installed_patches", JSON.stringify(patches));
+        },
+        isSteamLink(link) {
+            return /^(https?:)?\/\/store\.steampowered\.com/.test(link);
+        },
+        getInstalledPatchVersion(gameID) {
+            let patches = localStorage.getItem("installed_patches");
+            if (patches) {
+                patches = JSON.parse(patches);
+                let index = patches.findIndex((p) => p.game == gameID);
+                if (index != -1) {
+                    return patches[index].version;
+                }
+            }
+            return false;
+        },
+        removeGameID(gameID) {
+            let patches = localStorage.getItem("installed_patches");
+            if (patches) {
+                patches = JSON.parse(patches);
+                let index = patches.findIndex((p) => p.game == gameID);
+                if (index != -1) {
+                    patches.splice(index, 1);
+                    localStorage.setItem("installed_patches", JSON.stringify(patches));
+                }
+            }
+        },
+        isInstalled() {
+            let patches = localStorage.getItem("installed_patches");
+            let id = this.getActiveGameID();
+            if (patches) {
+                patches = JSON.parse(patches);
+                let index = patches.findIndex((p) => p.game == id);
+                if (index != -1) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        async openGame() {
+            let path = this.steamPath + "\\" + this.game.patches[0].exe;
+            await openPath(path).catch(() => {
+                this.fetchError = true;
+                this.fetchErrorText = "Hru nelze spustit";
+            });
+        },
+        scrollLog() {
+            let log = this.$refs["install-log"];
+            // after install
+            if (this.installStep == installPages.done) {
+                log = this.$refs["install-log-after"];
+            }
+            if (this.installStep == installPages.error) {
+                log = this.$refs["install-log-after-err"];
+            }
+            //uninstall
+            if (this.uninstallStep == 2) {
+                log = this.$refs["uninstall-log"];
+            }
+            if (log) log.scrollTop = log.scrollHeight;
+        }
+    },
+    computed: {
+        lastSentenceFromUninstallLog() {
+            let sentences = this.uninstallLog.split('<br>');
+            let lastSentence = sentences[sentences.length - 1];
+            return lastSentence.trim();
         }
     }
 };
@@ -924,7 +1074,8 @@ export default {
 
     opacity: 1;
     z-index: 100;
-    transition: opacity 0.3s ease-in-out, z-index 0.3s ease-in-out;
+    transition: opacity 0.3s ease-in-out,
+    z-index 0.3s ease-in-out;
 
     display: flex;
     justify-content: center;
@@ -944,6 +1095,12 @@ export default {
 
         border-radius: 10px;
         min-width: 80%;
+        max-width: 90%;
+        max-height: 60%;
+
+        .log {
+            overflow-y: auto;
+        }
 
         .btn {
             border: 1px solid $alt;
@@ -1001,6 +1158,8 @@ export default {
 }
 
 .small {
+    max-height: 60%;
+    overflow-y: auto;
     font-size: 0.6em;
 }
 
