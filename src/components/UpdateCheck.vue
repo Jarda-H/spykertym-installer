@@ -1,10 +1,12 @@
 <script setup>
 import { getVersion } from '@tauri-apps/api/app';
 import Popup from "./Popup.vue";
+import { invoke } from '@tauri-apps/api';
+import { message } from '@tauri-apps/api/dialog';
 </script>
 <template>
     <Popup :active="updateAvailable" :title="str.update.title"
-        :body="`${str.update.body} Aktuální verze: ${currentVersion}, nová verze: ${removeVersion}.`" type="update"
+        :body="`${str.update.body} Aktuální verze: ${currentVersion}, nová verze: ${remoteVersion}.`" type="update"
         @close="updateAvailable = false" @update="updateTheApp" @ignoreUpdate="ignoreUpdate" />
 </template>
 <script>
@@ -14,7 +16,8 @@ export default {
         return {
             updateAvailable: false,
             currentVersion: "",
-            removeVersion: "",
+            remoteVersion: "",
+            link: ""
         };
     },
     async mounted() {
@@ -30,13 +33,14 @@ export default {
         fetch(this.API_ENDPOINT + "version")
             .then((res) => res.json())
             .then((data) => {
-                this.removeVersion = data.version;
-                let cmp = this.cmpVersions(this.removeVersion, this.currentVersion);
+                this.remoteVersion = data.version;
+                this.link = data.link;
+                let cmp = this.cmpVersions(this.remoteVersion, this.currentVersion);
                 if (cmp) {
-                    console.log(`${cmp} ${this.removeVersion} > ${this.currentVersion}`);
+                    console.log(`${cmp} ${this.remoteVersion} > ${this.currentVersion}`);
                     this.updateAvailable = true;
                 } else //no update
-                    console.log(`${this.removeVersion} <= ${this.currentVersion}`);
+                    console.log(`${this.remoteVersion} <= ${this.currentVersion}`);
             });
     },
     methods: {
@@ -57,8 +61,18 @@ export default {
             return 0;
         },
         updateTheApp() {
-            //TODO donwload the update
-
+            invoke("update_the_app", {
+                url: this.link
+            }).catch((e) => {
+                message(
+                    `Aktualizace se nezdařila. Akualizaci si prosím stáhněte z webu nebo to zkuste později. Chyba: ${e}`,
+                    {
+                        okLabel: "OK",
+                        title: "Chyba",
+                        type: "error"
+                    }
+                );
+            });
             //close the popup
             this.updateAvailable = false;
         },

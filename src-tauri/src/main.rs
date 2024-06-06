@@ -334,6 +334,49 @@ fn delete_file(path: String) -> Result<String, String> {
         Err(e) => Err(e.to_string()),
     }
 }
+#[tauri::command]
+fn update_the_app(url: String) -> Result<String, String> {
+    let current_exe_name = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .file_name()
+        .ok_or("Failed to get file name")?
+        .to_string_lossy()
+        .into_owned();
+    //download the update
+    match download(url, current_exe_name.clone()) {
+        Ok(_) => {}
+        Err(e) => return Err(e),
+    }
+    //get temp dir with the downloaded file
+    let temp_dir = std::env::temp_dir().join(current_exe_name.clone());
+    // spawn cmd that will replace the current exe with the downloaded
+    let mut command = std::process::Command::new("cmd");
+    command.arg("/C");
+    // exit the old app
+    command.arg("taskkill");
+    command.arg("/f");
+    command.arg("/im");
+    command.arg(current_exe_name.clone());
+    command.arg("&&");
+    // del the old exe
+    command.arg("del");
+    command.arg("/f");
+    command.arg("/q");
+    command.arg(current_exe_name.clone());
+    command.arg("&&");
+    // move from tmp to current dir
+    command.arg("move");
+    command.arg(temp_dir);
+    command.arg(current_exe_name.clone());
+    command.arg("&&");
+    // start the new exe
+    command.arg("start");
+    command.arg(current_exe_name);
+    command.spawn().map_err(|e| e.to_string())?;
+
+    println!("Running command: {:?}", command);
+    Ok("ok".into())
+}
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -350,7 +393,8 @@ fn main() {
             delete_temps,
             copy_and_replace,
             get_temp_dir,
-            delete_file
+            delete_file,
+            update_the_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -60,17 +60,15 @@ export default {
       }).catch((err) => {
         this.fetchErrorText = err;
         this.fetchError = true;
-        return;
       });
     if (
       (json.error || !json.games) &&
       !this.fetchError
     ) {
-      //TODO handle error better
       this.fetchError = true;
       this.fetchErrorText = this.str.server_error;
-      return;
     }
+    if (this.fetchError) return;
     //sort json.dokonceno by json.hra desc
     json.games.sort((a, b) => a.hra.localeCompare(b.hra));
     this.json = json.games;
