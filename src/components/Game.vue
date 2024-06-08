@@ -271,12 +271,14 @@ export default {
             let patches = this.game.patches;
             let gamePath = this.steamPath;
             let game_version = "unknown";
+            let patch_offset = -1;
             if (gamePath && patches.length) {
                 await Promise.all(patches.map(async patch => {
                     //if patched, end the whole loop
                     if (game_version == "patched" || game_version == "original") {
                         return;
                     }
+                    patch_offset++;
                     let zipFiles = patch.files;
                     let countPatched = 0;
                     for (let i = 0; i < zipFiles.length; i++) {
@@ -319,7 +321,10 @@ export default {
             if (this.is_backup && !game_version == "patched") {
                 return "backup";
             }
-            return game_version;
+            return {
+                version: game_version,
+                patch: patch_offset
+            };
         },
         async updateGame(id) {
             this.popupOpen = false; // close popup if is opened
@@ -522,14 +527,15 @@ export default {
                 this.game_version = "unknown";
                 return;
             }
-            this.game_version = await this.doMD5Check();
+            let checkFiles = await this.doMD5Check();
+            this.game_version = checkFiles.version;
             if (this.game_version == "unknown") {
                 this.isFolderOk = false;
                 return;
             }
             this.isFolderOk = true;
             if (this.game_version == "patched") {
-                await this.saveInstalledPatch();
+                await this.saveInstalledPatch(checkFiles.patch);
             }
         },
         async getMD5(path) {
@@ -810,9 +816,9 @@ export default {
                 });
             });
         },
-        async saveInstalledPatch() {
+        async saveInstalledPatch(patchIndex = 0) {
             let gamePath = this.steamPath;
-            let patch = this.game.patches[0];
+            let patch = this.game.patches[patchIndex];
             let gameID = this.getActiveGameID();
             let data = {
                 game: gameID,
