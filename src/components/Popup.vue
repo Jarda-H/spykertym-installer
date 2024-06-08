@@ -8,9 +8,7 @@
                 <img src="../assets/loading.svg" alt="retry icon" @click="reload" v-if="type == 'retry'">
             </div>
             <div class="body">
-                <div class="content">
-                    {{ body }}
-                </div>
+                <div class="content" v-html="body"></div>
                 <div class="actions" v-if="type == 'update'">
                     <a class="btn" @click="update">
                         {{ str.update.do }}
@@ -50,7 +48,7 @@ export default {
         closeBg(e) {
             if (this.type != 'close') return;
             console.log(e.target.classList)
-            if (['header', 'body'].includes(e.target.classList[0])) return;
+            if (!e.target.classList.contains("popup")) return;
             this.$emit('close');
         },
         close() {
@@ -115,6 +113,10 @@ img {
 
     .btn {
         border: 1px solid #20a566;
+    }
+
+    :deep(*) {
+        color: white;
     }
 }
 </style>

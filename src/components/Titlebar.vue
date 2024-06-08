@@ -1,6 +1,8 @@
 <script setup>
 import { appWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
+import { message } from '@tauri-apps/api/dialog';
+import Popup from "./Popup.vue";
 </script>
 <template>
     <div data-tauri-drag-region class="titlebar">
@@ -12,6 +14,9 @@ import { getVersion } from '@tauri-apps/api/app';
                     <span v-else>-dev</span>
                 </span>
             </h2>
+            <div class="titlebar-btn settings" @click="checkUpdates">
+                <h2>Zkontrolovat aktualizace češtin</h2>
+            </div>
         </div>
         <div class="btns">
             <div class="titlebar-btn min" @click="min">
@@ -34,6 +39,7 @@ import { getVersion } from '@tauri-apps/api/app';
             </div>
         </div>
     </div>
+    <Popup :active="popup" title="Kontrola aktualizací češtin" :body="checkOut" type="close" @close="popup = false" />
 </template>
 <script>
 export default {
@@ -41,6 +47,8 @@ export default {
     data() {
         return {
             version: "",
+            popup: false,
+            checkOut: ""
         }
     },
     async mounted() {
@@ -55,6 +63,67 @@ export default {
         },
         close() {
             appWindow.close()
+        },
+        async checkUpdates() {
+            if (this.popup) return;
+            if (!localStorage.getItem("installed_patches") ||
+                localStorage.getItem("installed_patches") == "[]") {
+                await message(
+                    "První nainstalujte nějaký překlad a poté zkuste zkontrolovat aktualizace",
+                    {
+                        title: "Neméte nainstalované češtiny",
+                        type: "info"
+                    }
+                );
+                return;
+            }
+            await fetch(this.API_ENDPOINT + "get/latest-versions")
+                .then(res => res.json())
+                .then(server => {
+                    if (server.error) {
+                        message(server.message || "Neznámá chyba", {
+                            title: "Chyba",
+                            type: "error"
+                        });
+                        return;
+                    }
+                    // get installed from ls
+                    let local = localStorage.getItem("installed_patches");
+                    local = JSON.parse(local);
+
+                    let ok = "", update = "";
+                    local.forEach(local => {
+                        let serverPatch = server.patches
+                            .find(patch => patch.game_id === Number(local.game));
+                        if (!serverPatch) {
+                            update += `<p>
+                            Hra s ID ${local.game} není na serveru dostupná
+                            </p>`;
+                            return;
+                        }
+                        if (serverPatch.version === local.version) {
+                            ok += `<p>
+                                ${serverPatch.name || local.game} - Verze ${local.version} z dne ${serverPatch.release} je aktuální
+                                </p>`;
+                        } else {
+                            update += `<p>
+                            Hra ${serverPatch.name || local.game} - Verze ${local.version} není aktuální, aktuální verze je ${serverPatch.version}
+                            </p>`;
+                        }
+                    });
+                    if (!update) {
+                        this.checkOut = "<p>Všechny hry mají nejnovější češtinu</p>";
+                        this.popup = true;
+                        return;
+                    }
+                    this.checkOut = `
+                        <h2>Je dostupná nová verze češtin</h2>
+                        ${update || "<p>Všechny hry mají nejnovější češtinu</p>"}
+                        <h2>Aktuální verze</h2>
+                        ${ok || "<p>Doporučujeme aktualizovat češtiny nahoře na novější verzi</p>"}
+                    `;
+                    this.popup = true;
+                });
         }
     }
 };
@@ -101,9 +170,20 @@ export default {
     align-items: center;
     width: 30px;
     height: 30px;
+    transition: .2s background;
 
     &:hover {
         background: rgba(0, 0, 0, 0.2);
+    }
+
+    &.settings {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 0 10px;
+        width: fit-content;
+
+        &:hover {
+            background: rgba(0, 0, 0, 0.6);
+        }
     }
 }
 
