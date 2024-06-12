@@ -81,7 +81,7 @@ export default {
                 .then(res => res.json())
                 .then(server => {
                     if (server.error) {
-                        message(server.message || "Neznámá chyba", {
+                        message(server.message || "Neznámá chyba.", {
                             title: "Chyba",
                             type: "error"
                         });
@@ -119,10 +119,14 @@ export default {
                     this.checkOut = `
                         <h2>Je dostupná nová verze češtin</h2>
                         ${update || "<p>Všechny hry mají nejnovější češtinu</p>"}
-                        <h2>Aktuální verze</h2>
-                        ${ok || "<p>Doporučujeme aktualizovat češtiny nahoře na novější verzi</p>"}
+                        ${ok ? `<h2>Aktuální verze</h2>${ok}` : ""}
                     `;
                     this.popup = true;
+                }).catch(err => {
+                    message("Nepovedlo se získat data, zkuste to později.", {
+                        title: "Chyba",
+                        type: "error"
+                    });
                 });
         }
     }
