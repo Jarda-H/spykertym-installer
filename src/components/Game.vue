@@ -105,7 +105,8 @@ import Popup from "./Popup.vue";
         </div>
         <div class="install" ref="install" v-bind:class="{ 'hidden': !popupOpen }">
             <div class="step" v-if="installStep == installPages.path">
-                <h2 class="title">Instalace překladu</h2>
+                <h2 class="title" v-if="game_version == 'patched' && game_patch_offset != 0">Aktualizace překladu</h2>
+                <h2 class="title" v-else>Instalace překladu</h2>
                 <div v-if="game && game.patches.length" class="about-patch">
                     <div class="info">
                         <img src="../assets/install/version.svg" alt="">
@@ -136,7 +137,11 @@ import Popup from "./Popup.vue";
                         <img src="../assets/folder.svg" alt="Folder icon">
                         Vybrat
                     </a>
-                    <a class="btn" @click="install" v-if="game_version == 'patched'">
+                    <a class="btn" @click="install" v-if="game_version == 'patched' && game_patch_offset != 0">
+                        Aktualizovat
+                        <img src="../assets/next.svg" alt="next step">
+                    </a>
+                    <a class="btn" @click="install" v-else-if="game_version == 'patched'">
                         Přeinstalovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
@@ -707,6 +712,7 @@ export default {
 
             this.is_backup = true;
             this.game_version = "patched";
+            this.game_patch_offset = 0;
             await this.saveInstalledPatch();
             this.installStep = installPages.done;
             this.scrollLog();
