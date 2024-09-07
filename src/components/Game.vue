@@ -62,7 +62,7 @@ import Popup from "./Popup.vue";
                         <img src="../assets/alert/warning.svg" alt="warn ico">
                         <span>Byla vydána nová verze češtiny <b>{{ game.patches[0].version }}</b> dne:
                             <b>{{ game.patches[0].release }}</b>. Vy máte nainstalovanou verzi <b>{{
-            game.patches[game_patch_offset].version }}</b></span>
+                                game.patches[game_patch_offset].version }}</b></span>
                     </div>
                     <div class="alert alert-info" v-else>
                         <img src="../assets/alert/info.svg" alt="info ico">
@@ -1068,6 +1068,20 @@ export default {
 
 .install,
 .uninstall {
+    opacity: 1;
+    z-index: 100;
+    transition: opacity 0.3s ease-in-out,
+        z-index 0.3s ease-in-out;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    width: 70%;
+    @include full-height;
+    top: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+
     &.hidden {
         opacity: 0;
         z-index: -1;
@@ -1083,20 +1097,6 @@ export default {
             width: 2em;
         }
     }
-
-    opacity: 1;
-    z-index: 100;
-    transition: opacity 0.3s ease-in-out,
-    z-index 0.3s ease-in-out;
-
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: absolute;
-    width: 70%;
-    @include full-height;
-    top: 0;
-    background-color: rgba(0, 0, 0, 0.7);
 
     .step {
         display: flex;
