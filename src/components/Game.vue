@@ -410,10 +410,10 @@ export default {
                 let now = 0;
                 let end = parseInt(text.dataset.percentage);
                 let progress = setInterval(() => {
-                    now++;
                     text.textContent = `${now}%`
                     ref.style.background = `conic-gradient(#20a566 ${now * 3.6}deg, rgba(0, 0, 0, .1) 0deg)`
                     if (now == end) clearInterval(progress);
+                    now++;
                 }, 5);
             }
         },
