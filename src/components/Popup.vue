@@ -67,6 +67,7 @@ export default {
 };
 </script>
 <style lang="scss" scoped>
+@use "../global" as *;
 .popup {
     position: fixed;
     top: 0;

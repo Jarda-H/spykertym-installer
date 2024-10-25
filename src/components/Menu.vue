@@ -155,6 +155,7 @@ export default {
 };
 </script>
 <style lang="scss" scoped>
+@use "../global" as *;
 nav {
   // right side nav
   display: flex;

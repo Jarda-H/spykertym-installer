@@ -133,6 +133,7 @@ export default {
 };
 </script>
 <style lang="scss" scoped>
+@use "../global" as *;
 .titlebar {
     height: 30px;
     background: $main3;

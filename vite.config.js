@@ -21,7 +21,7 @@ export default defineConfig(async () => ({
   css: {
     preprocessorOptions: {
       scss: {
-        additionalData: `@import "./src/global.scss";`,
+        api: "modern-compiler"
       },
     },
   },
