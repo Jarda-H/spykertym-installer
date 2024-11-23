@@ -18,9 +18,8 @@ import Popup from "./Popup.vue";
                 <img src="../assets/loading.svg" alt="loading icon">
             </div>
             <div class="header">
-                <img :src='steamHeaderImg'
-                    alt="Game header" v-if="steamHeaderImg">
-                    <div class="no-header" v-else></div>
+                <img :src='steamHeaderImg' alt="Game header" v-if="steamHeaderImg">
+                <div class="no-header" v-else></div>
                 <div class="dimm-img"></div>
                 <h1>{{ game.hra }}</h1>
             </div>
@@ -79,7 +78,8 @@ import Popup from "./Popup.vue";
                     <div class="state-of-the-translation">
                         <div v-for="(state, stateIndex) in game.procenta" :key="stateIndex" class="progress-section">
                             <h3 v-if="state.title">{{ state.title }}</h3>
-                            <div v-for="categoryIndex in Math.ceil(state.procenta.length / 4)" :key="categoryIndex" class="progress-row">
+                            <div v-for="categoryIndex in Math.ceil(state.procenta.length / 4)" :key="categoryIndex"
+                                class="progress-row">
                                 <div class="category">
                                     <div class="row"
                                         v-for="item in state.procenta.slice((categoryIndex - 1) * 4, categoryIndex * 4)"
@@ -220,8 +220,7 @@ import Popup from "./Popup.vue";
             </div>
         </div>
     </div>
-    <Popup :active="fetchError" title="Chyba" :body="`Nastala chyba při načítání dat. ${fetchErrorText}`" type="close"
-        @close="fetchError = false" />
+    <Popup :active="fetchError" title="Chyba" :body="fetchErrorText" type="close" @close="fetchError = false" />
 </template>
 <script>
 const installPages = {
@@ -585,10 +584,8 @@ export default {
         async install() {
             await this.checkFolder();
             if (!this.isFolderOk) {
-                await message(
-                    "Zvolená složka neobsahuje hru.",
-                    "Neplatná složka",
-                );
+                this.fetchError = true;
+                this.fetchErrorText = `Zvolená složka neobsahuje hru.`;
                 return;
             }
             if (this.game_version == "unknown") return;
@@ -1077,6 +1074,7 @@ export default {
         justify-content: center;
         align-items: center;
         min-width: 25%; // max 4 rows
+        text-align: center;
     }
 
 
@@ -1264,9 +1262,7 @@ $res: 10em;
         width: calc($res - 40px);
         border-radius: 50%;
         background-color: $mainbg;
-    }
-
-    span {
+    }  span {
         position: relative;
         color: $alt;
         font-size: 2em;
