@@ -68,13 +68,8 @@ export default {
             if (this.popup) return;
             if (!localStorage.getItem("installed_patches") ||
                 localStorage.getItem("installed_patches") == "[]") {
-                await message(
-                    "První nainstalujte nějaký překlad a poté zkuste zkontrolovat aktualizace",
-                    {
-                        title: "Neméte nainstalované češtiny",
-                        type: "info"
-                    }
-                );
+                    this.popup = true;
+                    this.checkOut = "<p>Zatím nebyly nainstalovány žádné češtiny</p>";
                 return;
             }
             await fetch(this.API_ENDPOINT + "get/latest-versions")

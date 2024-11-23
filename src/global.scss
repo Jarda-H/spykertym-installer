@@ -1,10 +1,11 @@
 $main: #5db6cd;
 $mainD: rgba(93, 182, 205, 0.702);
 $main2: #f04e3e;
-$main3: #20a566;
+$main3: #50ab4a;
 
-$mainbg: #2f2f2f;
-$bg: #1a1a1a;
+$mainbg: #191918;
+$bg: #2a2a2a;
+$menu_bg: #242424;
 //$alt: #ff6f61;
 $alt: $main3;
 // breakpoints
@@ -61,20 +62,20 @@ input {
   color: white;
 
   &:hover {
-      background-color: $alt;
+    background-color: $alt;
   }
 
   &.disabled {
-      opacity: .5;
-      cursor: not-allowed;
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   &.danger {
-      background-color: $main2;
-      border-color: $main2 !important;
+    background-color: $main2;
+    border-color: $main2 !important;
   }
 
   img {
-      width: 2em;
+    width: 2em;
   }
 }

@@ -18,6 +18,10 @@ import Popup from "./Popup.vue";
                 <img src="../assets/loading.svg" alt="loading icon">
             </div>
             <div class="header">
+                <img :src='steamHeaderImg'
+                    alt="Game header" v-if="steamHeaderImg">
+                    <div class="no-header" v-else></div>
+                <div class="dimm-img"></div>
                 <h1>{{ game.hra }}</h1>
             </div>
             <div class="content">
@@ -73,15 +77,19 @@ import Popup from "./Popup.vue";
                 <div class="tab">
                     <h2>Stav:</h2>
                     <div class="state-of-the-translation">
-                        <div v-for="state in game.procenta" class="progress-row">
+                        <div v-for="(state, stateIndex) in game.procenta" :key="stateIndex" class="progress-section">
                             <h3 v-if="state.title">{{ state.title }}</h3>
-                            <div class="category">
-                                <div class="row" v-for="item in state.procenta">
-                                    <p>{{ item.nazev }}</p>
-                                    <div class="progress-bar" ref="procenta">
-                                        <span :data-percentage="item.procenta">0%</span>
+                            <div v-for="categoryIndex in Math.ceil(state.procenta.length / 4)" :key="categoryIndex" class="progress-row">
+                                <div class="category">
+                                    <div class="row"
+                                        v-for="item in state.procenta.slice((categoryIndex - 1) * 4, categoryIndex * 4)"
+                                        :key="item.nazev">
+                                        <p>{{ item.nazev }}</p>
+                                        <div class="progress-bar" ref="procenta">
+                                            <span :data-percentage="item.procenta">0%</span>
+                                        </div>
+                                        <p>{{ item.info }}</p>
                                     </div>
-                                    <p>{{ item.info }}</p>
                                 </div>
                             </div>
                         </div>
@@ -250,6 +258,8 @@ export default {
             //errors
             fetchError: false,
             fetchErrorText: "",
+            // steam header img
+            steamHeaderImg: "",
         };
     },
     mounted() {
@@ -271,6 +281,19 @@ export default {
             const regex = /https?:\/\/store\.steampowered\.com\/app\/(\d+)/;
             const match = url.match(regex);
             return match ? match[1] : null;
+        },
+        getSteamHeaderImg(steamURL) {
+            let id = this.getIDfromURL(steamURL);
+            let headerURL = `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${id}/library_hero.jpg`;
+            // check if exists
+            let img = new Image();
+            img.src = headerURL;
+            img.onload = () => {
+                this.steamHeaderImg = headerURL;
+            }
+            img.onerror = () => {
+                this.steamHeaderImg = "";
+            }
         },
         async doMD5Check() {
             let patches = this.game.patches;
@@ -401,6 +424,8 @@ export default {
             }
             // try hashes
             if (this.steamPath) await this.checkFolder();
+            // get header img
+            this.getSteamHeaderImg(data.game.steam);
             this.loading = false;
             // set the progress
             for (let i = 0; i < this.$refs.procenta.length; i++) {
@@ -411,7 +436,7 @@ export default {
                 let end = parseInt(text.dataset.percentage);
                 let progress = setInterval(() => {
                     text.textContent = `${now}%`
-                    ref.style.background = `conic-gradient(#20a566 ${now * 3.6}deg, rgba(0, 0, 0, .1) 0deg)`
+                    ref.style.background = `conic-gradient(#50ab4a ${now * 3.6}deg, rgba(0, 0, 0, .1) 0deg)`
                     if (now == end) clearInterval(progress);
                     now++;
                 }, 5);
@@ -917,6 +942,7 @@ export default {
 </script>
 <style lang="scss" scoped>
 @use "../global" as *;
+
 :deep(a) {
     color: $alt;
 }
@@ -990,7 +1016,7 @@ export default {
 
     img {
         width: 100%;
-        max-height: 30vh;
+        height: 30vh;
         object-fit: cover;
         position: relative;
 
@@ -1002,14 +1028,18 @@ export default {
         position: absolute;
         width: 100%;
         height: 30vh;
-        background-color: rgba(0, 0, 0, 0.8);
+        background-color: rgba(0, 0, 0, 0.5);
         border-bottom-left-radius: 1em;
         border-bottom-right-radius: 1em;
     }
 
     h1 {
         margin-top: .5em;
-        //  position: absolute;
+        position: absolute;
+    }
+
+    .no-header {
+        height: 30vh;
     }
 }
 
@@ -1046,6 +1076,7 @@ export default {
         gap: 1em;
         justify-content: center;
         align-items: center;
+        min-width: 25%; // max 4 rows
     }
 
 

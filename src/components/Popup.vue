@@ -102,12 +102,17 @@ img {
     padding: 1em;
     background: $main3;
     color: white;
+    // top border radius
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
 }
 
 .body {
     padding: 4em;
     background: $bg;
-
+    // bottom border radius
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
     .actions {
         margin-top: 1em;
     }

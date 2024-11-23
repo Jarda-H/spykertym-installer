@@ -164,7 +164,7 @@ nav {
   padding-top: 1em;
 
   width: 30%;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: $menu_bg;
   border: 1px solid #ffffff1d;
   border-top-right-radius: 1em;
   border-bottom-right-radius: 1em;
@@ -179,7 +179,7 @@ nav {
   }
 
   &::-webkit-scrollbar-track {
-    background-color: #e4e4e417;
+    background-color: $menu_bg;
     border-radius: 100px;
   }
 
