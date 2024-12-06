@@ -1,7 +1,7 @@
 <script setup>
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { getVersion } from '@tauri-apps/api/app';
-import { message } from '@tauri-apps/api/dialog';
+import { message } from '@tauri-apps/plugin-dialog';
 import Popup from "./Popup.vue";
 </script>
 <template>
@@ -42,6 +42,7 @@ import Popup from "./Popup.vue";
     <Popup :active="popup" title="Kontrola aktualizací češtin" :body="checkOut" type="close" @close="popup = false" />
 </template>
 <script>
+const appWindow = getCurrentWebviewWindow()
 export default {
     name: "Titlebar",
     data() {

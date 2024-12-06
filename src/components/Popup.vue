@@ -68,6 +68,7 @@ export default {
 </script>
 <style lang="scss" scoped>
 @use "../global" as *;
+
 .popup {
     position: fixed;
     top: 0;
@@ -113,6 +114,7 @@ img {
     // bottom border radius
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
+
     .actions {
         margin-top: 1em;
     }

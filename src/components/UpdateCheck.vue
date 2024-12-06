@@ -1,8 +1,8 @@
 <script setup>
 import { getVersion } from '@tauri-apps/api/app';
 import Popup from "./Popup.vue";
-import { invoke } from '@tauri-apps/api';
-import { message } from '@tauri-apps/api/dialog';
+import { invoke } from "@tauri-apps/api/core";
+import { message } from '@tauri-apps/plugin-dialog';
 </script>
 <template>
     <Popup :active="updateAvailable" :title="str.update.title"

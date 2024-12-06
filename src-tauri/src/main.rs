@@ -379,6 +379,8 @@ fn update_the_app(url: String) -> Result<String, String> {
 }
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             steam_is_installed,

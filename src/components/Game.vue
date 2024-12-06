@@ -1,11 +1,11 @@
 <script setup>
 import { currentGame } from "./store/CurrentGame.js";
 //tauri utils
-import { open as openPath } from "@tauri-apps/api/shell";
-import { open as openExplorer } from '@tauri-apps/api/dialog';
+import { open as openPath } from "@tauri-apps/plugin-shell";
+import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
-import { invoke } from "@tauri-apps/api/tauri";
-import { message } from '@tauri-apps/api/dialog';
+import { invoke } from "@tauri-apps/api/core";
+import { message } from '@tauri-apps/plugin-dialog';
 
 import * as VDF from "vdf-parser";
 import Popup from "./Popup.vue";

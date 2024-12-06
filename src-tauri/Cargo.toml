@@ -8,22 +8,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "1", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "1", features = [
-    "window-unminimize",
-    "window-unmaximize",
-    "window-start-dragging",
-    "window-minimize",
-    "window-hide",
-    "window-show",
-    "window-maximize",
-    "window-close",
-    "dialog-message",
-    "path-all",
-    "dialog-open",
-    "shell-open",
+tauri = { version = "2", features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,6 +22,8 @@ zip = "1.3.0"
 md5 = "0.7.0"
 dotenv_codegen = "0.15.0"
 sha2 = "0.10.8"
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

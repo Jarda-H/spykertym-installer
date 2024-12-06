@@ -60,6 +60,7 @@ export default {
 </script>
 <style lang="scss" scoped>
 @use "global" as *;
+
 .view {
   color: #f6f6f6;
   background-color: $mainbg;
