@@ -28,6 +28,12 @@ if (process.env.NODE_ENV === 'production') {
     app.config.globalProperties.API_ENDPOINT = 'https://spykertym.cz/app/';
     app.config.globalProperties.prod = true;
 }
+function debugPrint(...args) {
+    if (!app.config.globalProperties.prod) {
+        console.log(...args);
+    }
+}
+window.debugPrint = debugPrint;
 
 app.use(pinia)
 app.mount('#app')

@@ -295,14 +295,30 @@ export default {
             }
         },
         async doMD5Check() {
+            debugPrint("[MD5] Starting MD5 check");
             let patches = this.game.patches;
             let gamePath = this.steamPath;
             let game_version = "unknown";
             let patch_offset = -1;
             if (gamePath && patches.length) {
+                // search if patch isnt set in local storage
+                let installedPatch = this.getInstalledPatchVersion(this.getActiveGameID());
+                debugPrint(`[MD5] Installed patch: ${installedPatch}`);
+                if (installedPatch) {
+                    patch_offset = patches.findIndex((p) => p.version == installedPatch);
+                    if (patch_offset != -1) {
+                        debugPrint(`[MD5] Found installed patch:`);
+                        debugPrint(patch_offset);
+                        return {
+                            version: "patched",
+                            patch: patch_offset
+                        };
+                    }
+                }
                 await Promise.all(patches.map(async patch => {
                     //if patched, end the whole loop
                     if (game_version == "patched" || game_version == "original") {
+                        debugPrint("[MD5] Found patched or original");
                         return;
                     }
                     patch_offset++;
@@ -317,9 +333,17 @@ export default {
                         let md5 = await this.getMD5(fileToCheck);
                         // check for backups
                         if (!this.is_backup) {
-                            let md5_backup = await this.getMD5(fileToCheck + ".backup");
-                            if (md5_backup == currentPatch.old) {
-                                this.is_backup = true;
+                            let patchPath = fileToCheck + ".backup";
+                            // check if file exists first
+                            let check = await invoke('file_exists', {
+                                path: patchPath
+                            });
+                            if (check == "true") {
+                                debugPrint(`[MD5] Backup found: ${currentPatch.path}, checking MD5`);
+                                let md5_backup = await this.getMD5(fileToCheck + ".backup");
+                                if (md5_backup == currentPatch.old) {
+                                    this.is_backup = true;
+                                }
                             }
                         }
                         switch (md5) {
@@ -339,7 +363,6 @@ export default {
                         }
                     }
                     if (countPatched == zipFiles.length) {
-                        this.game_patch_offset = patches.indexOf(patch);
                         game_version = "patched";
                     }
                 }));
@@ -348,12 +371,15 @@ export default {
             if (this.is_backup && !game_version == "patched") {
                 return "backup";
             }
+            debugPrint(`[MD5] Game version: ${game_version}`);
+            debugPrint(`[MD5] Patch offset: ${patch_offset}`);
             return {
                 version: game_version,
                 patch: patch_offset
             };
         },
         async updateGame(id) {
+            console.clear();
             this.popupOpen = false; // close popup if is opened
             // default values
             this.steamPath = "";
@@ -537,7 +563,7 @@ export default {
                 this.isFolderOk = false;
                 return;
             }
-            // Check if the `$APPDATA/avatar.png` file exists
+            // Check if the file exists
             if (!this.game.patches[0] ||
                 !this.game.patches[0].hasOwnProperty('exe')) {
                 // vyber cesty installeru
@@ -556,14 +582,17 @@ export default {
                 this.game_version = "unknown";
                 return;
             }
+            debugPrint(`[checkFolder] ${path} ok`);
             let checkFiles = await this.doMD5Check();
             this.game_version = checkFiles.version;
             if (this.game_version == "unknown") {
                 this.isFolderOk = false;
                 return;
             }
+            debugPrint(`[checkFolder] ${path} md5 ok`);
             this.isFolderOk = true;
             if (this.game_version == "patched") {
+                this.game_patch_offset = checkFiles.patch;
                 await this.saveInstalledPatch(checkFiles.patch);
             }
         },
@@ -579,6 +608,7 @@ export default {
                     this.fetchErrorText = `Nepodařilo se získat hash ${path}`;
                 }
             })
+            debugPrint(`[getMD5] ${path} - ${hash}`);
             return hash;
         },
         async install() {
@@ -1262,7 +1292,9 @@ $res: 10em;
         width: calc($res - 40px);
         border-radius: 50%;
         background-color: $mainbg;
-    }  span {
+    }
+
+    span {
         position: relative;
         color: $alt;
         font-size: 2em;
