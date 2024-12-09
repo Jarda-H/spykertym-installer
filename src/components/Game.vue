@@ -635,8 +635,14 @@ export default {
                 jsonLog.push("[init] Stahování zipu s češtinou");
             }
             let error = false;
+            // if toDownload starts with /, remove it
+            if (toDownload.startsWith("/")) {
+                toDownload = toDownload.slice(1);
+            }
+            let downloadURL = this.API_ENDPOINT.replace('app/', '') + toDownload;
+            debugPrint(`[install] Downloading zip: ${downloadURL}`);
             await invoke('download', {
-                url: "https://spykertym.cz" + toDownload,
+                url: downloadURL,
                 filename: filename
             }).then(() => {
                 this.installLog += `Zip byl stažen<br>`;
