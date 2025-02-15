@@ -366,6 +366,7 @@ fn update_the_app(url: String) -> Result<String, String> {
     command.arg("&&");
     // move from tmp to current dir
     command.arg("move");
+    command.arg("/y"); // overwrite
     command.arg(temp_dir);
     command.arg(current_exe_name.clone());
     command.arg("&&");
