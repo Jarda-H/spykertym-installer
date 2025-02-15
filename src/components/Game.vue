@@ -1,6 +1,7 @@
 <script setup>
 import { currentGame } from "./store/CurrentGame.js";
 //tauri utils
+import { getVersion } from '@tauri-apps/api/app';
 import { open as openPath } from "@tauri-apps/plugin-shell";
 import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
@@ -843,7 +844,8 @@ export default {
                     version: this.game_version,
                     path: this.steamPath,
                     log,
-                    soubor: this.game.patches[0].version
+                    soubor: this.game.patches[0].version,
+                    app_version: await getVersion()
                 }
                 if (this.game_patch_offset != 0) {
                     data.old_patch = this.game.patches[this.game_patch_offset].version;
