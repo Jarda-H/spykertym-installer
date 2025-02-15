@@ -69,7 +69,7 @@ import Popup from "./Popup.vue";
                     </div>
                     <div class="alert alert-info" v-else>
                         <img src="../assets/alert/info.svg" alt="info ico">
-                        <span>Akutálně máte nainstalovanou češtinu <b>{{ game.patches[game_patch_offset].version }}</b>
+                        <span>Aktuálně máte nainstalovanou češtinu <b>{{ game.patches[game_patch_offset].version }}</b>
                             vydanou dne: <b>{{ game.patches[game_patch_offset].release }}</b></span>
                     </div>
                 </div>
