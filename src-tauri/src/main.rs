@@ -3,6 +3,7 @@
 
 use std::io;
 use std::io::Write;
+use tauri::Emitter;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -10,7 +11,7 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn steam_is_installed() -> Result<String, String> {
+async fn steam_is_installed() -> Result<String, String> {
     let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
     let mut subkey = key
         .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
@@ -29,7 +30,7 @@ fn steam_is_installed() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_steam_vdf() -> Result<String, String> {
+async fn get_steam_vdf() -> Result<String, String> {
     let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
     let mut subkey = key
         .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
@@ -58,7 +59,7 @@ fn get_steam_vdf() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn file_exists(path: String) -> Result<String, String> {
+async fn file_exists(path: String) -> Result<String, String> {
     let path = std::path::Path::new(&path);
     if path.exists() {
         Ok("true".into())
@@ -68,37 +69,170 @@ fn file_exists(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn download(url: String, filename: String) -> Result<String, String> {
-    use std::io::Write;
-    let path = std::env::temp_dir();
-    let path = path.join(filename);
-    let response = reqwest::blocking::get(&url);
-    if response.is_err() {
-        return Err("Nepodařilo se stáhnout soubor".into());
-    }
-    let response = response.unwrap();
+async fn download(url: String, filename: String, window: tauri::Window) -> Result<String, String> {
+    // get temp path
+    let path = std::env::temp_dir().join(filename.clone());
+    println!("Saving downloaded file to: {:?}", path);
+
+    // Use reqwest's async client instead of blocking
+    let client = reqwest::Client::new();
+
+    // get the response
+    let response = match client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Err(format!("Nepodařilo se stáhnout soubor: {}", e));
+        }
+    };
+
+    // check resp status code
     if !response.status().is_success() {
-        return Err("Nepodařilo se stáhnout soubor".into());
+        let status = response.status();
+        let error_msg = format!(
+            "Server vrátil chybu {} při stahování: {}",
+            status.as_u16(),
+            url
+        );
+        return Err(error_msg);
     }
-    let file = std::fs::File::create(path);
-    if file.is_err() {
-        return Err("Nepodařilo se vytvořit soubor".into());
+
+    // Check content type
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .map(|v| v.to_str().unwrap_or(""))
+        .unwrap_or("");
+
+    // Expected content types for EXE and ZIP files
+    let valid_exe_types = [
+        "application/vnd.microsoft.portable-executable",
+        "application/x-msdownload",
+        "application/octet-stream",
+    ];
+    let valid_zip_types = [
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/octet-stream",
+    ];
+
+    let extension = std::path::Path::new(&filename)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("")
+        .to_lowercase();
+
+    // content type == expected file extension
+    let is_valid = match extension.as_str() {
+        "exe" => valid_exe_types.contains(&content_type),
+        "zip" => valid_zip_types.contains(&content_type),
+        _ => content_type == "application/octet-stream" || content_type.starts_with("application/"),
+    };
+
+    // check if the content type is valid
+    if !is_valid {
+        return Err(format!(
+            "Neplatný typ souboru: {}. Očekávaný typ pro {}: {}",
+            content_type,
+            if extension == "exe" {
+                "EXE"
+            } else if extension == "zip" {
+                "ZIP"
+            } else {
+                "binární soubor"
+            },
+            if extension == "exe" {
+                "application/x-msdownload"
+            } else {
+                "application/zip"
+            }
+        ));
     }
-    let mut file = file.unwrap();
-    let content = response.bytes();
-    if content.is_err() {
-        return Err("Nepodařilo se získat obsah souboru".into());
+
+    // Get content length for progress calculation
+    let total_size = response.content_length().unwrap_or(0);
+
+    // Create the file
+    let mut file = match std::fs::File::create(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(format!("Nepodařilo se vytvořit soubor: {}", e));
+        }
+    };
+
+    // Use proper byte stream handling
+    use futures_util::StreamExt;
+    let mut stream = response.bytes_stream();
+    let mut downloaded: u64 = 0;
+    let start_time = std::time::Instant::now();
+    let mut last_update = std::time::Instant::now();
+
+    // Process the stream in chunks
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(e) => return Err(format!("Chyba při stahování: {}", e)),
+        };
+
+        // Write the chunk to the file
+        if let Err(e) = file.write_all(&chunk) {
+            return Err(format!("Nepodařilo se zapsat do souboru: {}", e));
+        }
+
+        // Update progress
+        downloaded += chunk.len() as u64;
+
+        // Send progress update every 100ms
+        if last_update.elapsed().as_millis() > 100 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let speed = if elapsed > 0.0 {
+                downloaded as f64 / elapsed / 1024.0 / 1024.0
+            } else {
+                0.0
+            };
+
+            let percentage = if total_size > 0 {
+                (downloaded as f64 / total_size as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            // Emit progress event
+            let _ = window.emit(
+                "download:progress",
+                Some(serde_json::json!({
+                    "downloaded": downloaded,
+                    "total": total_size,
+                    "percentage": percentage,
+                    "speed": speed
+                })),
+            );
+
+            last_update = std::time::Instant::now();
+        }
     }
-    let content = content.unwrap();
-    if let Err(e) = file.write_all(&content) {
-        eprintln!("Error writing to file: {}", e);
-        return Err("Nepodařilo se zapsat do souboru".into());
-    }
+
+    // Emit final progress
+    let elapsed = start_time.elapsed().as_secs_f64();
+    let speed = if elapsed > 0.0 {
+        downloaded as f64 / elapsed / 1024.0 / 1024.0
+    } else {
+        0.0
+    };
+    let _ = window.emit(
+        "download:progress",
+        Some(serde_json::json!({
+            "downloaded": downloaded,
+            "total": total_size,
+            "percentage": 100.0,
+            "speed": speed
+        })),
+    );
+
     Ok("true".into())
 }
 
 #[tauri::command]
-fn unzip_file(path: String) -> Result<Vec<String>, String> {
+async fn unzip_file(path: String) -> Result<Vec<String>, String> {
     //make the path %temp% + path
     let path = std::env::temp_dir().join(path);
     let fname = std::path::Path::new(&path);
@@ -158,11 +292,15 @@ fn unzip_file(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn patch_file(mut path: String, patch: String) -> Result<String, String> {
+async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     let xdelta3 = include_bytes!("./xdelta.exe");
     use std::os::windows::process::CommandExt;
     use std::process::Command;
+    use std::thread;
+    use futures::channel::oneshot;
     let no_win: u32 = 0x08000000;
+
+    // spawn xdelta in temp
     let mut temp_path = std::env::temp_dir();
     temp_path.push("xdelta3.exe");
     // if xdelta3.exe doesn't exist, create it
@@ -181,16 +319,34 @@ fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     // let output be path + ".patched"
     let output = format!("{}.patched", path);
 
-    let mut command = Command::new(temp_path);
-    command.arg("-d");
-    command.arg("-f");
-    command.arg("-s");
-    command.arg(path.clone());
-    command.arg(patch);
-    command.arg(output.clone());
-    command.creation_flags(no_win);
-    println!("Running command: {:?}", command);
-    let out = command.output();
+    // Clone values for the thread
+    let temp_path_clone = temp_path.clone();
+    let path_clone = path.clone();
+    let output_clone = output.clone();
+    let patch_clone = patch.clone();
+    
+    // Create a oneshot channel for communicating the result
+    let (sender, receiver) = oneshot::channel();
+    
+    // Spawn a thread to execute the command
+    thread::spawn(move || {
+        let mut command = Command::new(temp_path_clone);
+        command.arg("-d");
+        command.arg("-f");
+        command.arg("-s");
+        command.arg(path_clone);
+        command.arg(patch_clone);
+        command.arg(output_clone);
+        command.creation_flags(no_win);
+        
+        println!("Running command: {:?}", command);
+        let out = command.output();
+        let _ = sender.send(out);
+    });
+    
+    // Await the result from the thread
+    let out = receiver.await.map_err(|_| "Thread communication failed".to_string())?;
+    
     match out {
         Ok(out) => {
             let output_xdelta = String::from_utf8(out.stderr).unwrap();
@@ -223,8 +379,9 @@ fn patch_file(mut path: String, patch: String) -> Result<String, String> {
         Err(e) => Err(e.to_string()),
     }
 }
+
 #[tauri::command]
-fn get_md5(path: String) -> Result<String, String> {
+async fn get_md5(path: String) -> Result<String, String> {
     let content = std::fs::read(path);
     match content {
         Ok(content) => {
@@ -236,7 +393,7 @@ fn get_md5(path: String) -> Result<String, String> {
     }
 }
 #[tauri::command]
-fn backup_renew(path: String) -> Result<String, String> {
+async fn backup_renew(path: String) -> Result<String, String> {
     //if the path ends with .backup, rename it to be without the .backup
     if path.ends_with(".backup") {
         let old_path = std::path::Path::new(&path);
@@ -250,7 +407,7 @@ fn backup_renew(path: String) -> Result<String, String> {
     return Err("doesnt exists".into());
 }
 #[tauri::command]
-fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<String, String> {
+async fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<String, String> {
     use dotenv_codegen::dotenv;
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
@@ -263,7 +420,7 @@ fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<String
 }
 
 #[tauri::command]
-fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, String> {
+async fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, String> {
     let paths = delete.to_vec();
     for path in paths {
         let path = std::path::Path::new(path);
@@ -300,7 +457,7 @@ fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn copy_and_replace(from: String, to: String) -> Result<String, String> {
+async fn copy_and_replace(from: String, to: String) -> Result<String, String> {
     let from = std::path::Path::new(&from);
     let to = std::path::Path::new(&to);
     if !from.exists() || !from.is_file() {
@@ -320,11 +477,11 @@ fn copy_and_replace(from: String, to: String) -> Result<String, String> {
     }
 }
 #[tauri::command]
-fn get_temp_dir() -> Result<String, String> {
+async fn get_temp_dir() -> Result<String, String> {
     Ok(std::env::temp_dir().to_str().unwrap().to_string())
 }
 #[tauri::command]
-fn delete_file(path: String) -> Result<String, String> {
+async fn delete_file(path: String) -> Result<String, String> {
     let path = std::path::Path::new(&path);
     if !path.exists() {
         return Err("soubor neexistuje".into());
@@ -335,7 +492,7 @@ fn delete_file(path: String) -> Result<String, String> {
     }
 }
 #[tauri::command]
-fn update_the_app(url: String) -> Result<String, String> {
+async fn update_the_app(url: String, window: tauri::Window) -> Result<String, String> {
     let current_exe_name = std::env::current_exe()
         .map_err(|e| e.to_string())?
         .file_name()
@@ -343,9 +500,14 @@ fn update_the_app(url: String) -> Result<String, String> {
         .to_string_lossy()
         .into_owned();
     //download the update
-    match download(url, current_exe_name.clone()) {
-        Ok(_) => {}
-        Err(e) => return Err(e),
+    match download(url, current_exe_name.clone(), window).await {
+        Ok(_) => {
+            println!("Download ok");
+        }
+        Err(e) => {
+            eprintln!("Download error: {}", e);
+            return Err(e);
+        }
     }
     //get temp dir with the downloaded file
     let temp_dir = std::env::temp_dir().join(current_exe_name.clone());

@@ -7,9 +7,11 @@ import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
 import { message } from '@tauri-apps/plugin-dialog';
+import { listen } from "@tauri-apps/api/event";
 
 import * as VDF from "vdf-parser";
 import Popup from "./Popup.vue";
+import { ref } from "vue";
 </script>
 
 <template>
@@ -17,6 +19,7 @@ import Popup from "./Popup.vue";
         <div v-if="game">
             <div class="loading" v-if="loading">
                 <img src="../assets/loading.svg" alt="loading icon">
+                <p ref="loadingInfo"></p>
             </div>
             <div class="header">
                 <img :src='steamHeaderImg' alt="Game header" v-if="steamHeaderImg">
@@ -188,7 +191,7 @@ import Popup from "./Popup.vue";
             <div class="step" v-else>
                 <h2 class="title">Neznamy krok.. zkuste restartovat program</h2>
             </div>
-            <div class="close" @click="closeInstallPopup">
+            <div class="close" @click="closeInstallPopup" ref="closeInstall">
                 <img src="../assets/close.svg" alt="close icon">
             </div>
         </div>
@@ -260,6 +263,12 @@ export default {
             fetchErrorText: "",
             // steam header img
             steamHeaderImg: "",
+            downloadStats: {
+                progress: 0,
+                speed: 0,
+                total: 0,
+                current: 0
+            }
         };
     },
     mounted() {
@@ -268,6 +277,14 @@ export default {
             this.storeLastGame(state.game_id);
             this.updateGame(state.game_id);
         })
+        // listen to installstep changes
+        this.$watch('installStep', (newVal) => {
+            if (newVal == installPages.install) {
+                this.$refs.closeInstall.style.display = "none";
+                return;
+            }
+            this.$refs.closeInstall.style.display = "block";
+        });
     },
     methods: {
         storeLastGame(id) {
@@ -295,27 +312,36 @@ export default {
                 this.steamHeaderImg = "";
             }
         },
+        async isBackup(fileToCheck, currentPatch) {
+            let patchPath = fileToCheck + ".backup";
+            debugPrint(`[MD5-backup] Checking: ${patchPath}`);
+            let fileName = fileToCheck.split('\\').pop();
+            // check if file exists first
+            let check = await invoke('file_exists', {
+                path: patchPath
+            });
+            if (check == "true") {
+                debugPrint(`[MD5] Backup found: ${currentPatch.path}, checking MD5`);
+                let md5_backup = await this.getMD5(fileToCheck + ".backup");
+                if (md5_backup == currentPatch.old) {
+                    this.is_backup = true;
+                }
+            }
+        },
+        loadingInfo(text) {
+            if (this.$refs.loadingInfo) {
+                this.$refs.loadingInfo.innerHTML = text;
+            }
+        },
         async doMD5Check() {
             debugPrint("[MD5] Starting MD5 check");
+            // ref loading-info add text
+            this.loadingInfo("Kontrolování složky s hrou");
             let patches = this.game.patches;
             let gamePath = this.steamPath;
             let game_version = "unknown";
             let patch_offset = -1;
             if (gamePath && patches.length) {
-                // search if patch isnt set in local storage
-                let installedPatch = this.getInstalledPatchVersion(this.getActiveGameID());
-                debugPrint(`[MD5] Installed patch: ${installedPatch}`);
-                if (installedPatch) {
-                    patch_offset = patches.findIndex((p) => p.version == installedPatch);
-                    if (patch_offset != -1) {
-                        debugPrint(`[MD5] Found installed patch:`);
-                        debugPrint(patch_offset);
-                        return {
-                            version: "patched",
-                            patch: patch_offset
-                        };
-                    }
-                }
                 await Promise.all(patches.map(async patch => {
                     //if patched, end the whole loop
                     if (game_version == "patched" || game_version == "original") {
@@ -334,18 +360,7 @@ export default {
                         let md5 = await this.getMD5(fileToCheck);
                         // check for backups
                         if (!this.is_backup) {
-                            let patchPath = fileToCheck + ".backup";
-                            // check if file exists first
-                            let check = await invoke('file_exists', {
-                                path: patchPath
-                            });
-                            if (check == "true") {
-                                debugPrint(`[MD5] Backup found: ${currentPatch.path}, checking MD5`);
-                                let md5_backup = await this.getMD5(fileToCheck + ".backup");
-                                if (md5_backup == currentPatch.old) {
-                                    this.is_backup = true;
-                                }
-                            }
+                            await this.isBackup(fileToCheck, currentPatch);
                         }
                         switch (md5) {
                             case currentPatch.new:
@@ -393,6 +408,9 @@ export default {
             this.installLog = "";
             this.uninstallLog = "";
             this.game_patch_offset = 0;
+            this.fetchError = false;
+            this.fetchErrorText = "";
+            this.steamHeaderImg = "";
             //
             this.loading = true;
             // reset the progress to 0
@@ -406,6 +424,7 @@ export default {
             }
 
             let data = {};
+            this.$refs.loadingInfo = "Získávání dat o hře";
             await fetch(this.API_ENDPOINT + `get/game?id=${id}`)
                 .then((res) => res.json())
                 .then((d) => {
@@ -451,7 +470,11 @@ export default {
             // try hashes
             if (this.steamPath) await this.checkFolder();
             // get header img
-            this.getSteamHeaderImg(data.game.steam);
+            if (!data.game.banner?.url) {
+                this.getSteamHeaderImg(data.game.steam);
+            } else {
+                this.steamHeaderImg = this.API_ENDPOINT.replace('app/', '') + data.game.banner.url;
+            }
             this.loading = false;
             // set the progress
             for (let i = 0; i < this.$refs.procenta.length; i++) {
@@ -598,6 +621,8 @@ export default {
             }
         },
         async getMD5(path) {
+            let fileName = path.split('\\').pop();
+            this.loadingInfo(`Kontrolování souboru <b>${fileName}</b>`);
             let hash = "";
             await invoke('get_md5', {
                 path
@@ -612,7 +637,21 @@ export default {
             debugPrint(`[getMD5] ${path} - ${hash}`);
             return hash;
         },
+        replaceLastLogLine(text) {
+            let logLines = this.installLog.split('<br>');
+            // remove empty lines from the end
+            let lastLineIndex = logLines.length - 1;
+            while (lastLineIndex >= 0 && logLines[lastLineIndex] === '') {
+                lastLineIndex--;
+            }
+            if (lastLineIndex >= 0) {
+                logLines[lastLineIndex] = text;
+                this.installLog = logLines.join('<br>');
+            }
+        },
         async install() {
+            this.installStep = installPages.install;
+            this.installLog = "Probíhá kontrola souborů<br>";
             await this.checkFolder();
             if (!this.isFolderOk) {
                 this.fetchError = true;
@@ -620,8 +659,6 @@ export default {
                 return;
             }
             if (this.game_version == "unknown") return;
-            //install
-            this.installStep = installPages.install;
             let patch = this.game.patches[0];
             let isPatch = patch.files[0].hasOwnProperty('old');
             let toDownload = patch.zip;
@@ -642,13 +679,54 @@ export default {
             }
             let downloadURL = this.API_ENDPOINT.replace('app/', '') + toDownload;
             debugPrint(`[install] Downloading zip: ${downloadURL}`);
+
+            // reset from possible previous download
+            this.downloadProgress = 0;
+            this.downloadSpeed = 0;
+            this.downloadCurrent = 0;
+            this.downloadTotal = 0;
+
+            const progressListener = await listen('download:progress', (event) => {
+                let { percentage, speed, downloaded, total } = event.payload;
+                this.downloadStats.progress = Math.round(percentage);
+                this.downloadStats.speed = Math.round(speed * 100) / 100;
+                this.downloadStats.current = downloaded;
+                this.downloadStats.total = total;
+            });
+
+            const formatSize = (bytes) => {
+                if (bytes < 1024) return bytes + ' B';
+                else if (bytes < 1024 * 1024) return Math.round(bytes / 1024 * 10) / 10 + ' KB';
+                else return Math.round(bytes / 1024 / 1024 * 10) / 10 + ' MB';
+            };
+
+            const updateDownloadStatus = () => {
+                let dl = this.downloadStats;
+                if (dl.progress > 100) {
+                    return;
+                }
+                let progressText = `Stahování: ${dl.progress}% - ${formatSize(dl.current)} z ${formatSize(dl.total)} (${dl.speed} MB/s)`;
+                if (dl.progress === 100) {
+                    progressText = `Stahování dokončeno - ${formatSize(dl.total)}`;
+                    jsonLog.push(`[OK] ZIP ${formatSize(dl.total)}`);
+                }
+                this.replaceLastLogLine(progressText);
+                this.scrollLog();
+            };
+
+            const progressInterval = setInterval(updateDownloadStatus, 200);
+
             await invoke('download', {
                 url: downloadURL,
                 filename: filename
             }).then(() => {
-                this.installLog += `Zip byl stažen<br>`;
+                clearInterval(progressInterval);
+                progressListener();
+                this.replaceLastLogLine('Zip byl stažen');
                 jsonLog.push("[OK] Zip byl stažen");
             }).catch((err) => {
+                clearInterval(progressInterval);
+                progressListener();
                 this.installLog += `Chyba při stahování zipu - ${err}<br>`;
                 jsonLog.push(`[ERROR] Chyba při stahování zipu - ${err}`);
                 error = true;
@@ -669,7 +747,6 @@ export default {
             // foreach file run patch
             if (isPatch) {
                 await Promise.all(patchFiles.map(async patchFilePath => {
-                    //'C:\\Users\\JardaH\\AppData\\Local\\Temp\\3d8cd654a32ce942f0f94c4c8564e535\\Assembly-CSharp.dll.patch'
                     let patchName = patchFilePath.split("\\").pop();
                     // and replace .patch at the end
                     if (!patchName.endsWith('.patch')) {
@@ -692,6 +769,7 @@ export default {
                     if (this.is_backup && this.game_version == "patched") {
                         fileToPatch += ".backup";
                     }
+                    this.installLog += `Začalo upravování ${file.patch}<br>`;
                     await invoke('patch_file', {
                         path: fileToPatch,
                         patch: patchFilePath
@@ -720,7 +798,8 @@ export default {
                         post = `\\${patch.unzip_path}` + post;
                     }
                     let dest = this.steamPath + post;
-                    console.log(newFile, dest)
+                    debugPrint(newFile, dest)
+                    this.installLog += `Začátek kopírování souboru ${newFilename}<br>`;
                     await invoke('copy_and_replace', {
                         from: newFile,
                         to: dest
@@ -779,7 +858,7 @@ export default {
         async uninstall() {
             this.uninstallLog = "";
             if (!this.is_backup && this.game.patches[0].files[0].hasOwnProperty('old')) {
-                this.uninstallLog += `Hra nemá zálohu<br>Nelze odinstalovat`;
+                this.uninstallLog += `Hra nemá zálohu<br>Nelze odinstalovat.`;
                 this.uninstallStep++;
                 return;
             }
@@ -984,6 +1063,7 @@ export default {
 
 .loading {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     position: absolute;
@@ -1137,7 +1217,7 @@ export default {
 .install,
 .uninstall {
     opacity: 1;
-    z-index: 100;
+    z-index: 1;
     transition: opacity 0.3s ease-in-out,
         z-index 0.3s ease-in-out;
 
