@@ -2,6 +2,7 @@
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { getVersion } from '@tauri-apps/api/app';
 import { message } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import Popup from "./Popup.vue";
 </script>
 <template>
@@ -16,6 +17,9 @@ import Popup from "./Popup.vue";
             </h2>
             <div class="titlebar-btn settings" @click="checkUpdates">
                 <h2>Zkontrolovat aktualizace češtin</h2>
+            </div>
+            <div class="titlebar-btn settings" @click="openGH">
+                <img src="../assets/github.svg" alt="GitHub logo">
             </div>
         </div>
         <div class="btns">
@@ -69,8 +73,8 @@ export default {
             if (this.popup) return;
             if (!localStorage.getItem("installed_patches") ||
                 localStorage.getItem("installed_patches") == "[]") {
-                    this.popup = true;
-                    this.checkOut = "<p>Zatím nebyly nainstalovány žádné češtiny</p>";
+                this.popup = true;
+                this.checkOut = "<p>Zatím nebyly nainstalovány žádné češtiny</p>";
                 return;
             }
             await fetch(this.API_ENDPOINT + "get/latest-versions")
@@ -124,12 +128,16 @@ export default {
                         type: "error"
                     });
                 });
+        },
+        async openGH() {
+            await openUrl("https://github.com/Jarda-H/spykertym-installer/");
         }
     }
 };
 </script>
 <style lang="scss" scoped>
 @use "../global" as *;
+
 .titlebar {
     height: 30px;
     background: $main3;

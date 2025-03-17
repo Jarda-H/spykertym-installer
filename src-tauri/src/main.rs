@@ -294,10 +294,10 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     let xdelta3 = include_bytes!("./xdelta.exe");
+    use futures::channel::oneshot;
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use std::thread;
-    use futures::channel::oneshot;
     let no_win: u32 = 0x08000000;
 
     // spawn xdelta in temp
@@ -324,10 +324,10 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     let path_clone = path.clone();
     let output_clone = output.clone();
     let patch_clone = patch.clone();
-    
+
     // Create a oneshot channel for communicating the result
     let (sender, receiver) = oneshot::channel();
-    
+
     // Spawn a thread to execute the command
     thread::spawn(move || {
         let mut command = Command::new(temp_path_clone);
@@ -338,15 +338,17 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
         command.arg(patch_clone);
         command.arg(output_clone);
         command.creation_flags(no_win);
-        
+
         println!("Running command: {:?}", command);
         let out = command.output();
         let _ = sender.send(out);
     });
-    
+
     // Await the result from the thread
-    let out = receiver.await.map_err(|_| "Thread communication failed".to_string())?;
-    
+    let out = receiver
+        .await
+        .map_err(|_| "Thread communication failed".to_string())?;
+
     match out {
         Ok(out) => {
             let output_xdelta = String::from_utf8(out.stderr).unwrap();
@@ -542,6 +544,7 @@ async fn update_the_app(url: String, window: tauri::Window) -> Result<String, St
 }
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![

@@ -17,6 +17,7 @@
     "dialog:allow-open",
     "dialog:allow-message",
     "shell:default",
-    "dialog:default"
+    "dialog:default",
+    "opener:default"
   ]
 }

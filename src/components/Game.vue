@@ -846,7 +846,13 @@ export default {
                 return;
             }
             jsonLog.push("[OK] Instalace byla dokončena");
-            if (this.game_version != "patched") await this.sendLogToServer(jsonLog, true)
+            if (this.game_version != "patched") {
+                try {
+                    await this.sendLogToServer(jsonLog, true);
+                } catch (err) {
+                    this.installLog += `Chyba při odesílání instalace - ${err}<br>`;
+                }
+            }
 
             this.is_backup = true;
             this.game_version = "patched";
@@ -952,9 +958,15 @@ export default {
                         success
                     })
                 }).then((response) => {
+                    if (!response.ok) {
+                        err("Při odesílání došlo k chybě. Odpověď ze serveru byla chybná.");
+                    }
                     return response.json();
                 }).then((data) => {
-                    if (data.error) throw new Error("Při odesílání došlo k chybě");
+                    if (typeof data != "object") {
+                        err("Při odesílání došlo k chybě. Odpověď ze serveru byla chybná.");
+                    }
+                    if (data.error == true) err("Při odesílání došlo k chybě.");
                     ok(data);
                 }).catch((error) => {
                     err(error);
