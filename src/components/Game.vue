@@ -1,5 +1,6 @@
 <script setup>
 import { currentGame } from "./store/CurrentGame.js";
+import { menuWidth } from "./store/MenuWidth.js";
 //tauri utils
 import { getVersion } from '@tauri-apps/api/app';
 import { open as openPath } from "@tauri-apps/plugin-shell";
@@ -15,9 +16,9 @@ import { ref } from "vue";
 </script>
 
 <template>
-    <div class="game-view">
+    <div class="game-view" ref="gameView">
         <div v-if="game">
-            <div class="loading" v-if="loading">
+            <div class="loading" ref="loading" v-show="loading">
                 <img src="../assets/loading.svg" alt="loading icon">
                 <p ref="loadingInfo"></p>
             </div>
@@ -285,6 +286,11 @@ export default {
             }
             this.$refs.closeInstall.style.display = "block";
         });
+        // listen to menu resize
+        menuWidth().$subscribe((mutation, state) => {
+            this.updateGameViewWidth(state.CurrentWidth);
+        });
+        this.updateGameViewWidth(localStorage.getItem('nav-width'));
     },
     methods: {
         storeLastGame(id) {
@@ -384,7 +390,7 @@ export default {
                 }));
             }
             // it can be in backups
-            if (this.is_backup && !game_version == "patched") {
+            if (this.is_backup && game_version != "patched") {
                 return "backup";
             }
             debugPrint(`[MD5] Game version: ${game_version}`);
@@ -467,14 +473,14 @@ export default {
                 }
                 this.steamPath = gamePath;
             }
-            // try hashes
-            if (this.steamPath) await this.checkFolder();
             // get header img
             if (!data.game.banner?.url) {
                 this.getSteamHeaderImg(data.game.steam);
             } else {
                 this.steamHeaderImg = this.API_ENDPOINT.replace('app/', '') + data.game.banner.url;
             }
+            // try hashes
+            if (this.steamPath) await this.checkFolder();
             this.loading = false;
             // set the progress
             for (let i = 0; i < this.$refs.procenta.length; i++) {
@@ -1055,6 +1061,25 @@ export default {
                 log = this.$refs["uninstall-log"];
             }
             if (log) log.scrollTop = log.scrollHeight;
+        },
+        updateGameViewWidth(savedMenuWidth) {
+            if (!savedMenuWidth) return;
+            let gameViewEl = this.$refs.gameView;
+            let install = this.$refs.install;
+            let uninstall = this.$refs.uninstall;
+            let loading = this.$refs.loading;
+            if (gameViewEl) {
+                gameViewEl.style.width = `calc(100% - ${savedMenuWidth})`;
+            }
+            if (install) {
+                install.style.width = `calc(100% - ${savedMenuWidth})`;
+            }
+            if (uninstall) {
+                uninstall.style.width = `calc(100% - ${savedMenuWidth})`;
+            }
+            if (loading) {
+                loading.style.width = `calc(100% - ${savedMenuWidth})`;
+            }
         }
     },
     computed: {
@@ -1080,7 +1105,7 @@ export default {
     align-items: center;
     position: absolute;
     top: 0;
-    width: 70%;
+    width: -webkit-fill-available;
     @include full-height;
 
     background: rgb(0 0 0 / 50%);
