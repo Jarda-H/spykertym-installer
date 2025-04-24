@@ -18,6 +18,16 @@
     "dialog:allow-message",
     "shell:default",
     "dialog:default",
-    "opener:default"
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "steam://*"
+        }
+      ]
+    }
   ]
 }

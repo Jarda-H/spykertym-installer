@@ -240,53 +240,85 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
         return Err("Soubor neexistuje".into());
     }
     println!("Unzipping file: {:?}", fname);
-    let file = std::fs::File::open(fname).unwrap();
-    let mut archive = zip::ZipArchive::new(file).unwrap();
-    //array of extracted files
+
+    let file = match std::fs::File::open(fname) {
+        Ok(f) => f,
+        Err(e) => return Err(format!("Nepodařilo se otevřít zip soubor: {}", e)),
+    };
+
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(e) => return Err(format!("Nepodařilo se rozbalit zip soubor: {}", e)),
+    };
+
     let mut extracted_files = vec![];
+
+    let zip_name = std::path::Path::new(fname)
+        .file_stem()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("");
+    // temp + hash
+    let output_dir = std::env::temp_dir().join(zip_name);
+
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i).unwrap();
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(e) => return Err(format!("Nepodařilo se přečíst soubor z archivu: {}", e)),
+        };
+
         let filepath = match file.enclosed_name() {
             Some(path) => path.to_owned(),
             None => continue,
         };
-        // Get the name of the zip file without the .zip extension
-        let zip_name = std::path::Path::new(fname)
-            .file_stem()
-            .and_then(std::ffi::OsStr::to_str)
-            .unwrap_or("");
-        // Use a subdirectory of the temporary directory as the output directory
-        let output_dir = std::env::temp_dir().join(zip_name);
-        let outpath = output_dir.join(filepath);
+
+        let outpath = output_dir.join(&filepath);
 
         if (*file.name()).ends_with('/') {
             //folder
             println!(
-                "File {} extracted to \"{}\"",
+                "Folder {} extracted to \"{}\"",
                 file.name(),
                 outpath.display()
             );
-            std::fs::create_dir_all(&outpath).unwrap();
+            if let Err(e) = std::fs::create_dir_all(&outpath) {
+                return Err(format!("Nepodařilo se vytvořit složku: {}", e));
+            }
         } else {
             //file
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
-                    std::fs::create_dir_all(&p).unwrap();
+                    if let Err(e) = std::fs::create_dir_all(&p) {
+                        return Err(format!("Nepodařilo se vytvořit nadřazenou složku: {}", e));
+                    }
                 }
             }
-            let mut outfile = std::fs::File::create(&outpath).unwrap();
-            io::copy(&mut file, &mut outfile).unwrap();
-            let outpath_str = outpath.to_str().unwrap().replace("/", "\\");
-            extracted_files.push(outpath_str);
+
+            let mut outfile = match std::fs::File::create(&outpath) {
+                Ok(f) => f,
+                Err(e) => return Err(format!("Nepodařilo se vytvořit soubor: {}", e)),
+            };
+
+            if let Err(e) = io::copy(&mut file, &mut outfile) {
+                return Err(format!("Nepodařilo se rozbalit soubor: {}", e));
+            }
+
+            if let Some(outpath_str) = outpath.to_str() {
+                extracted_files.push(outpath_str.replace("/", "\\"));
+            }
         }
-        println!("Extracted {:?} {:?}", file.name(), outpath);
+        println!("Extracted {:?} to {:?}", file.name(), outpath);
     }
+
     // remove the zip file
-    std::fs::remove_file(fname).unwrap();
+    if let Err(e) = std::fs::remove_file(fname) {
+        return Err(format!("Nepodařilo se odstranit zip soubor: {}", e));
+    }
+
     //check if is removed
     if fname.exists() {
         return Err("Nepodařilo se odstranit zip".into());
     }
+
     // return array of extracted files
     Ok(extracted_files)
 }
@@ -422,19 +454,7 @@ async fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<
 }
 
 #[tauri::command]
-async fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, String> {
-    let paths = delete.to_vec();
-    for path in paths {
-        let path = std::path::Path::new(path);
-        if path.exists() {
-            std::fs::remove_file(path).unwrap();
-            // check if it was removed
-            if path.exists() {
-                let err = format!("Nepodařilo se odstranit soubor {}", path.display());
-                return Err(err.into());
-            }
-        }
-    }
+async fn delete_temps(folder: String) -> Result<String, String> {
     // also del the xdelta3.exe
     let mut temp_path = std::env::temp_dir();
     temp_path.push("xdelta3.exe");
@@ -449,10 +469,9 @@ async fn delete_temps(delete: Vec<&str>, folder: String) -> Result<String, Strin
     let mut folder_del = std::env::temp_dir();
     folder_del.push(folder);
     if folder_del.exists() {
-        std::fs::remove_dir_all(folder_del.clone()).unwrap();
-        // check if it was removed
-        if folder_del.exists() {
-            return Err("Nepodařilo se odstranit složku".into());
+        match std::fs::remove_dir_all(&folder_del) {
+            Ok(_) => {}
+            Err(e) => return Err(format!("Nepodařilo se odstranit složku: {}", e)),
         }
     }
     Ok("ok".into())
@@ -465,6 +484,19 @@ async fn copy_and_replace(from: String, to: String) -> Result<String, String> {
     if !from.exists() || !from.is_file() {
         return Err("File doesn't exist".into());
     }
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = to.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(format!(
+                    "Nepodařilo se vytvořit adresářovou strukturu: {}",
+                    e
+                ));
+            }
+        }
+    }
+
     if to.exists() {
         // rename to backup
         let backup = format!("{}.backup", to.to_str().unwrap());

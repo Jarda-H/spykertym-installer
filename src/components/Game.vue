@@ -3,7 +3,7 @@ import { currentGame } from "./store/CurrentGame.js";
 import { menuWidth } from "./store/MenuWidth.js";
 //tauri utils
 import { getVersion } from '@tauri-apps/api/app';
-import { open as openPath } from "@tauri-apps/plugin-shell";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
@@ -69,13 +69,13 @@ import { ref } from "vue";
                     <div class="alert alert-warning" v-if="game_patch_offset != 0">
                         <img src="../assets/alert/warning.svg" alt="warn ico">
                         <span>Byla vydána nová verze češtiny <b>{{ game.patches[0].version }}</b> dne:
-                            <b>{{ game.patches[0].release }}</b>. Vy máte nainstalovanou verzi <b>{{
+                            <b>{{ formatDate(game.patches[0].release) }}</b>. Vy máte nainstalovanou verzi <b>{{
                                 game.patches[game_patch_offset].version }}</b></span>
                     </div>
                     <div class="alert alert-info" v-else>
                         <img src="../assets/alert/info.svg" alt="info ico">
                         <span>Aktuálně máte nainstalovanou češtinu <b>{{ game.patches[game_patch_offset].version }}</b>
-                            vydanou dne: <b>{{ game.patches[game_patch_offset].release }}</b></span>
+                            vydanou dne: <b>{{ formatDate(game.patches[game_patch_offset].release) }}</b></span>
                     </div>
                 </div>
                 <div class="tab">
@@ -127,7 +127,7 @@ import { ref } from "vue";
                     </div>
                     <div class="info">
                         <img src="../assets/install/date.svg" alt="">
-                        {{ game.patches[0].release }}
+                        {{ formatDate(game.patches[0].release) }}
                     </div>
                 </div>
                 <h2>Cesta ke hře:</h2>
@@ -503,7 +503,10 @@ export default {
             await invoke('steam_is_installed')
                 .then(async (path) => {
                     steamInstalled = true;
-                })
+                }).catch(() => {
+                    debugPrint("[openLink] Steam not installed");
+                    steamInstalled = false;
+                });
             if (steamInstalled) {
                 //if is stream link
                 let id = this.getIDfromURL(link);
@@ -511,9 +514,9 @@ export default {
                     link = `steam://advertise/${id}`;
                 }
             }
-            await openPath(link).catch(() => {
+            await openUrl(link).catch((e) => {
                 this.fetchError = true;
-                this.fetchErrorText = this.str.steam_open_error;
+                this.fetchErrorText = `${this.str.steam_open_error} - ${e}`;
             });
         },
         steamGameByID(json, id) {
@@ -629,17 +632,15 @@ export default {
         async getMD5(path) {
             let fileName = path.split('\\').pop();
             this.loadingInfo(`Kontrolování souboru <b>${fileName}</b>`);
-            let hash = "";
+            let hash = null;
             await invoke('get_md5', {
                 path
             }).then((md5) => {
                 hash = md5;
-            }).catch(() => {
-                if (this.installStep == installPages.install) {
-                    this.fetchError = true;
-                    this.fetchErrorText = `Nepodařilo se získat hash ${path}`;
-                }
-            })
+            }).catch((err) => {
+                debugPrint(`[getMD5] Error: ${err}`);
+                hash = null;
+            });
             debugPrint(`[getMD5] ${path} - ${hash}`);
             return hash;
         },
@@ -824,7 +825,6 @@ export default {
             // delete patch files
             if (patchFiles.length) {
                 await invoke('delete_temps', {
-                    delete: patchFiles,
                     folder: zipFolder
                 }).then(() => {
                     this.installLog += `Patch soubory byly smazány<br>`;
@@ -1042,9 +1042,9 @@ export default {
         },
         async openGame() {
             let path = this.steamPath + "\\" + this.game.patches[0].exe;
-            await openPath(path).catch(() => {
+            await openUrl(path).catch((e) => {
                 this.fetchError = true;
-                this.fetchErrorText = "Hru nelze spustit";
+                this.fetchErrorText = `Hru nelze spustit - ${e}`;
             });
         },
         scrollLog() {
@@ -1080,7 +1080,22 @@ export default {
             if (loading) {
                 loading.style.width = `calc(100% - ${savedMenuWidth})`;
             }
-        }
+        },
+        formatDate(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                });
+            } catch (e) {
+                return dateString; // fallback to original if parsing fails
+            }
+        },
     },
     computed: {
         lastSentenceFromUninstallLog() {
