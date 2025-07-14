@@ -7,7 +7,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
-import { message } from '@tauri-apps/plugin-dialog';
 import { listen } from "@tauri-apps/api/event";
 
 import * as VDF from "vdf-parser";
@@ -19,8 +18,9 @@ import { ref } from "vue";
     <div class="game-view" ref="gameView">
         <div v-if="game">
             <div class="loading" ref="loading" v-show="loading">
-                <img src="../assets/loading.svg" alt="loading icon">
+                <img src="../assets/loading.svg" alt="loading icon" class="loading-spin">
                 <p ref="loadingInfo"></p>
+                <p ref="loadingRandomTexts"></p>
             </div>
             <div class="header">
                 <img :src='steamHeaderImg' alt="Game header" v-if="steamHeaderImg">
@@ -42,12 +42,11 @@ import { ref } from "vue";
                         <img src="../assets/cart.svg" alt="Cart ico">
                         Obchod
                     </a>
-                    <a class="btn" @click="openInstallPopup"
-                        v-if="game.patches[0] && game_version == 'patched' && game_patch_offset != 0">
+                    <a class="btn" @click="openInstallPopup" v-if="isUpdateAvailable()">
                         <img src="../assets/redownload.svg" alt="Redownload icon">
                         Aktualizovat
                     </a>
-                    <a class="btn" @click="openInstallPopup" v-else-if="game.patches[0] && game_version == 'patched'">
+                    <a class="btn" @click="openInstallPopup" v-else-if="game.patches[gamePatchLocal] && game_version == 'patched'">
                         <img src="../assets/redownload.svg" alt="Redownload icon">
                         Přeinstalovat
                     </a>
@@ -66,16 +65,17 @@ import { ref } from "vue";
                     </a>
                 </div>
                 <div class="tab" v-if="game_version == 'patched'">
-                    <div class="alert alert-warning" v-if="game_patch_offset != 0">
-                        <img src="../assets/alert/warning.svg" alt="warn ico">
-                        <span>Byla vydána nová verze češtiny <b>{{ game.patches[0].version }}</b> dne:
+                    <div class="alert alert-warning"
+                        v-if="gamePatchLocal != -1 && game.patches[canUsePaches[0]]?.version != game.patches[gamePatchLocal].version">
+                        <img src="../assets/alert/warning.svg" alt="Warning icon">
+                        <span>Byla vydána nová verze češtiny <b>{{ game.patches[canUsePaches[0]]?.version }}</b> dne:
                             <b>{{ formatDate(game.patches[0].release) }}</b>. Vy máte nainstalovanou verzi <b>{{
-                                game.patches[game_patch_offset].version }}</b></span>
+                                game.patches[gamePatchLocal].version }}</b></span>
                     </div>
                     <div class="alert alert-info" v-else>
-                        <img src="../assets/alert/info.svg" alt="info ico">
-                        <span>Aktuálně máte nainstalovanou češtinu <b>{{ game.patches[game_patch_offset].version }}</b>
-                            vydanou dne: <b>{{ formatDate(game.patches[game_patch_offset].release) }}</b></span>
+                        <img src="../assets/alert/info.svg" alt="Info icon">
+                        <span>Aktuálně máte nainstalovanou češtinu <b>{{ game.patches[gamePatchLocal].version }}</b>
+                            vydanou dne: <b>{{ formatDate(game.patches[gamePatchLocal].release) }}</b></span>
                     </div>
                 </div>
                 <div class="tab">
@@ -117,45 +117,89 @@ import { ref } from "vue";
             <h1>{{ selectAGame }}</h1>
         </div>
         <div class="install" ref="install" v-bind:class="{ 'hidden': !popupOpen }">
-            <div class="step" v-if="installStep == installPages.path">
-                <h2 class="title" v-if="game_version == 'patched' && game_patch_offset != 0">Aktualizace překladu</h2>
+            <div class="step version-picker" ref="version-picker" v-if="installStep == installPages.version_picker">
+                <h2 class="title">Vyberte verzi češtiny</h2>
+                <div class="versions">
+                    <div class="version" v-for="(patch, index) in game.patches" :key="index"
+                        @click="selectPatchVersion(index); installStep = installPages.path" v-bind:class="{
+                            'selected': game_patch_offset == index,
+                            'disabled': !canUsePaches.includes(index)
+                        }">
+                        <p>{{ patch.changelog }} ({{ patch.version }}) - {{ formatDate(patch.release) }}</p>
+                        <span class="warning" v-if="!canUsePaches.includes(index)">
+                            <img src="../assets/alert/warning.svg" alt="Warning icon">
+                            <span>Tento patch není určen pro vaši verzi hry</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="actions">
+                    <a class="btn" @click="installStep = installPages.path">
+                        Zpět
+                    </a>
+                </div>
+            </div>
+            <div class="step" v-else-if="installStep == installPages.path">
+                <h2 class="title" v-if="game_version == 'patched' && game_patch_offset != gamePatchLocal">Aktualizace překladu</h2>
                 <h2 class="title" v-else>Instalace překladu</h2>
                 <div v-if="game && game.patches.length" class="about-patch">
                     <div class="info">
                         <img src="../assets/install/version.svg" alt="">
-                        {{ game.patches[0].version }}
+                        {{ game.patches[game_patch_offset].changelog }} ({{ game.patches[game_patch_offset].version }})
                     </div>
                     <div class="info">
                         <img src="../assets/install/date.svg" alt="">
-                        {{ formatDate(game.patches[0].release) }}
+                        {{ formatDate(game.patches[game_patch_offset].release) }}
                     </div>
+                    <a class="btn" @click="installStep = installPages.version_picker" v-if="game.patches.length > 1">
+                        Změnit
+                    </a>
                 </div>
                 <h2>Cesta ke hře:</h2>
                 <input type="text" v-model="steamPath" v-on:input="onPathInput">
                 <div class="path-status" v-if="!pathLoading">
                     <p v-if="!steamPath">Vyberte složku s hrou</p>
-                    <p v-if="isFolderOk && steamPath">Byla nalezena složka s hrou</p>
-                    <p v-if="steamPath && !isFolderOk">
-                        <template v-if="game_version == 'patched'">Hra má již nainstalovaný patch</template>
-                        <template v-else-if="game_version == 'backup'">Hra má zálohu</template>
-                        <template v-else-if="game_version == 'unknown'">Vyberte složku s hrou</template>
-                        <template v-else>Vyberte složku s hrou. Tato složka neobsahuje hru</template>
-                    </p>
+
+                    <div class="alert alert-warning"
+                        v-if="game_version == 'unknown' || !canUsePaches.includes(game_patch_offset)">
+                        <img src="../assets/alert/warning.svg" alt="Warning icon">
+                        <span>
+                            <template v-if="canUsePaches.length">Zvolte jiný patch. Tento patch není určen pro vaši
+                                verzi hry.</template>
+                            <template v-else>Zdá se, že nemáte zvolenou složku s hrou.</template>
+                        </span>
+                    </div>
+                    <div class="alert alert-warning"
+                        v-else-if="canUsePaches.length && canUsePaches[0] !== game_patch_offset && isFolderOk && steamPath">
+                        <img src="../assets/alert/warning.svg" alt="Warning icon">
+                        <span>K dispozici je novější verze. <a class="btn"
+                                @click="selectPatchVersion(canUsePaches[0]);">Vybrat
+                                nejnovější</a></span>
+                    </div>
+                    <div class="alert alert-success" v-else-if="isFolderOk || isBackup">
+                        <img src="../assets/folder.svg" alt="Folder icon">
+                        <span v-if="isFolderOk">Byla nalezena složka s hrou</span>
+                        <span v-else-if="isBackup">Čeština je již nainstalována ({{
+                            game.patches[game_patch_offset].version }})</span>
+                    </div>
+
                 </div>
                 <div class="path-status" v-else>
-                    <p>Hledání...</p>
+                    <div class="alert alert-info">
+                        <img src="../assets/loading.svg" class="loading-spin" alt="Loading icon">
+                        <span>Probíhá kontrola složky</span>
+                    </div>
                 </div>
                 <div class="actions">
                     <a class="btn" @click="browseFiles">
                         <img src="../assets/folder.svg" alt="Folder icon">
                         Vybrat
                     </a>
-                    <a class="btn" @click="install" v-if="game_version == 'patched' && game_patch_offset != 0">
-                        Aktualizovat
+                    <a class="btn" @click="install" v-if="game_version == 'patched' && gamePatchLocal == game_patch_offset">
+                        Přeinstalovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
                     <a class="btn" @click="install" v-else-if="game_version == 'patched'">
-                        Přeinstalovat
+                        Aktualizovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
                     <a class="btn" v-bind:class="{ 'disabled': !isFolderOk }" @click="install" v-else>
@@ -199,12 +243,16 @@ import { ref } from "vue";
         <div class="uninstall" ref="uninstall" v-bind:class="{ 'hidden': !popupUninstallOpen }">
             <div class="step" v-if="uninstallStep == 1">
                 <h2 class="title">Opravdu chcete vrátit hru do původního stavu?</h2>
+                <div class="alert alert-warning" v-if="!isBackup">
+                    <img src="../assets/alert/warning.svg" alt="Warning icon">
+                    <span>Zazálohované soubory byly smazány. Přeinstalujte hru manuálně.</span>
+                </div>
                 <div class="actions">
                     <a class="btn" @click="closeUninstallPopup">
                         <img src="../assets/close.svg" alt="Close icon">
                         Zrušit
                     </a>
-                    <a class="btn danger" @click="uninstall">
+                    <a class="btn danger" @click="uninstall" v-if="isBackup">
                         Odinstalovat
                         <img src="../assets/uninstall.svg" alt="next step">
                     </a>
@@ -229,6 +277,7 @@ import { ref } from "vue";
 </template>
 <script>
 const installPages = {
+    version_picker: 0,
     path: 1,
     install: 2,
     done: 3,
@@ -256,9 +305,11 @@ export default {
             steamPath: "",
             isFolderOk: false,
             pathLoading: false,
-            is_backup: false,
+            isBackup: false,
             game_version: "unknown",
             game_patch_offset: 0,
+            gamePatchLocal: -1,
+            canUsePaches: [],
             //errors
             fetchError: false,
             fetchErrorText: "",
@@ -291,6 +342,28 @@ export default {
             this.updateGameViewWidth(state.CurrentWidth);
         });
         this.updateGameViewWidth(localStorage.getItem('nav-width'));
+        // TODO: listen for loadingInfo changes and get random bs text
+        let setupedInterval = false;
+        this.$watch('loadingInfo', (newVal) => {
+            if (setupedInterval) return;
+            let newText = "";
+            setupedInterval = true;
+            const runRandomGen = setInterval(() => {
+                if (!this.$refs.loadingInfo) {
+                    clearInterval(runRandomGen);
+                    setupedInterval = false;
+                    return;
+                }
+                if (this.$refs.loadingInfo) {
+                    newText += "."
+                    this.$refs.loadingRandomTexts.innerHTML = newText; // zmenit na random hlasky
+                }
+                if (newText.length > 10) {
+                    newText = ".";
+                }
+
+            }, 500);
+        });
     },
     methods: {
         storeLastGame(id) {
@@ -318,19 +391,18 @@ export default {
                 this.steamHeaderImg = "";
             }
         },
-        async isBackup(fileToCheck, currentPatch) {
+        async checkBackup(fileToCheck, currentPatch) {
             let patchPath = fileToCheck + ".backup";
-            debugPrint(`[MD5-backup] Checking: ${patchPath}`);
             let fileName = fileToCheck.split('\\').pop();
             // check if file exists first
             let check = await invoke('file_exists', {
                 path: patchPath
             });
             if (check == "true") {
-                debugPrint(`[MD5] Backup found: ${currentPatch.path}, checking MD5`);
                 let md5_backup = await this.getMD5(fileToCheck + ".backup");
                 if (md5_backup == currentPatch.old) {
-                    this.is_backup = true;
+                    debugPrint(`[MD5] Found backup: ${fileName}`);
+                    this.isBackup = true;
                 }
             }
         },
@@ -339,64 +411,95 @@ export default {
                 this.$refs.loadingInfo.innerHTML = text;
             }
         },
+        async doPatchCheck(patch) {
+            let zipFiles = patch.files;
+            let countPatched = 0;
+            let originalFiles = 0;
+            let unknown = false;
+            for (let i = 0; i < zipFiles.length; i++) {
+                let currentPatch = zipFiles[i];
+                let fileToCheck = this.steamPath + currentPatch.path;
+                if (patch.unzip_path) {
+                    fileToCheck = this.steamPath + `\\${patch.unzip_path}\\` + currentPatch.path;
+                }
+                let md5 = await this.getMD5(fileToCheck);
+                switch (md5) {
+                    case currentPatch.new:
+                        if (originalFiles) {
+                            unknown = true;
+                            break;
+                        }
+                        countPatched++;
+                        break;
+                    case currentPatch.old:
+                        if (countPatched) {
+                            unknown = true;
+                            break;
+                        }
+                        originalFiles++;
+                        break;
+                    default:
+                        unknown = true;
+                        break;
+                }
+                if (unknown) break;
+            }
+            if (unknown) {
+                // not a patch, just zip
+                if (patch.hasOwnProperty('unzip_path')) {
+                    return "original";
+                }
+                debugPrint("[MD5] Unknown files found");
+                return "unknown";
+            }
+
+            if (originalFiles == zipFiles.length) {
+                debugPrint("[MD5] All files are original");
+                return "original";
+            }
+
+            if (countPatched == zipFiles.length) {
+                debugPrint("[MD5] All files are patched");
+                return "patched";
+            }
+        },
         async doMD5Check() {
             debugPrint("[MD5] Starting MD5 check");
             // ref loading-info add text
             this.loadingInfo("Kontrolování složky s hrou");
             let patches = this.game.patches;
-            let gamePath = this.steamPath;
-            let game_version = "unknown";
-            let patch_offset = -1;
-            if (gamePath && patches.length) {
-                await Promise.all(patches.map(async patch => {
-                    //if patched, end the whole loop
-                    if (game_version == "patched" || game_version == "original") {
-                        debugPrint("[MD5] Found patched or original");
-                        return;
-                    }
-                    patch_offset++;
-                    let zipFiles = patch.files;
-                    let countPatched = 0;
-                    for (let i = 0; i < zipFiles.length; i++) {
-                        let currentPatch = zipFiles[i];
-                        let fileToCheck = gamePath + currentPatch.path;
-                        if (patch.unzip_path) {
-                            fileToCheck = gamePath + `\\${patch.unzip_path}\\` + currentPatch.path;
-                        }
-                        let md5 = await this.getMD5(fileToCheck);
-                        // check for backups
-                        if (!this.is_backup) {
-                            await this.isBackup(fileToCheck, currentPatch);
-                        }
-                        switch (md5) {
-                            case currentPatch.new:
-                                countPatched++;
-                                break;
-                            case currentPatch.old:
-                                game_version = "original";
-                                break;
-                            default:
-                                game_version = "unknown";
-                                // not a patch, just zip
-                                if (!currentPatch.old) {
-                                    game_version = "original";
-                                }
-                                break;
+            let version = "unknown";
+            let patch_offset = 0;
+            if (this.steamPath && patches.length) {
+                for (let i = 0; i < patches.length; i++) {
+                    let patch = patches[i];
+                    debugPrint(`[MD5] Checking patch: ${i}`);
+                    let tempVersion = await this.doPatchCheck(patch);
+                    if (tempVersion == "patched") {
+                        version = "patched";
+                        patch_offset = i;
+                        this.canUsePaches.push(i);
+                        // check if backup exists
+                        if (!this.isBackup) {
+                            await this.checkBackup(this.steamPath + patch.files[i].path, patch.files[i]);
                         }
                     }
-                    if (countPatched == zipFiles.length) {
-                        game_version = "patched";
+                    if (tempVersion == "original") {
+                        version = "original";
+                        this.canUsePaches.push(i);
                     }
-                }));
+                }
             }
-            // it can be in backups
-            if (this.is_backup && game_version != "patched") {
-                return "backup";
+            // if original, check newest patch that can be used
+            if (version != "patched" && this.canUsePaches.length) {
+                version = "original";
+                patch_offset = this.canUsePaches[0];
             }
-            debugPrint(`[MD5] Game version: ${game_version}`);
+
+            debugPrint(`[MD5] Game version: ${version}`);
             debugPrint(`[MD5] Patch offset: ${patch_offset}`);
             return {
-                version: game_version,
+                version,
                 patch: patch_offset
             };
         },
@@ -407,13 +510,15 @@ export default {
             this.steamPath = "";
             this.game_version = "unknown";
             this.isFolderOk = false;
-            this.is_backup = false;
+            this.isBackup = false;
             this.pathLoading = false;
             this.installStep = installPages.path;
             this.uninstallStep = 1;
             this.installLog = "";
             this.uninstallLog = "";
             this.game_patch_offset = 0;
+            this.gamePatchLocal = -1;
+            this.canUsePaches = [];
             this.fetchError = false;
             this.fetchErrorText = "";
             this.steamHeaderImg = "";
@@ -453,6 +558,8 @@ export default {
             }
             this.game = data.game;
             //try to get the path from the local storage
+            let alreadyInstalled = false;
+
             let patches = localStorage.getItem("installed_patches");
             if (patches) {
                 //find the game
@@ -460,11 +567,11 @@ export default {
                 let index = patches.findIndex((p) => p.game == id);
                 if (index != -1) {
                     this.steamPath = patches[index].path;
+                    alreadyInstalled = true;
                 }
             }
             // no luck with local storage, try to get the path from steam
-            if (!this.steamPath) {
-                // update install path
+            if (!alreadyInstalled) {
                 let gamePath = "";
                 try {
                     gamePath = await this.getSteamGamePath(data.game.steam);
@@ -480,7 +587,7 @@ export default {
                 this.steamHeaderImg = this.API_ENDPOINT.replace('app/', '') + data.game.banner.url;
             }
             // try hashes
-            if (this.steamPath) await this.checkFolder();
+            if (this.steamPath) await this.checkFolder(true);
             this.loading = false;
             // set the progress
             for (let i = 0; i < this.$refs.procenta.length; i++) {
@@ -543,8 +650,11 @@ export default {
                         .then((data) => {
                             let parsed = VDF.parse(data);
                             let path = this.steamGameByID(parsed, id);
-                            if (path && this.game.patches.length) resolve(
-                                `${path}\\steamapps\\common\\${this.game.patches[0].folder}`);
+                            if (path && this.game.patches.length) {
+                                let folder = this.game.patches[this.game_patch_offset].folder;
+                                resolve(
+                                    `${path}\\steamapps\\common\\${folder}`);
+                            }
                         })
                 }
                 reject("game not found in steam vdf");
@@ -565,10 +675,17 @@ export default {
 
             if (selected) {
                 this.steamPath = selected;
-                this.checkFolder();
+                this.pathLoading = true;
+                await this.checkFolder();
+                this.pathLoading = false;
             }
         },
         openInstallPopup() {
+            // if is to update, select the newest patch
+            if (this.game_version == "patched" && this.game_patch_offset != 0) {
+                this.selectPatchVersion(this.canUsePaches[0]);
+            }
+
             this.popupOpen = true;
         },
         closeInstallPopup() {
@@ -590,15 +707,16 @@ export default {
             await this.checkFolder();
             this.pathLoading = false;
         },
-        async checkFolder() {
+        async checkFolder(initial = true) {
+            if (initial) this.canUsePaches = [];
             let path = this.steamPath;
             if (!path) {
                 this.isFolderOk = false;
                 return;
             }
             // Check if the file exists
-            if (!this.game.patches[0] ||
-                !this.game.patches[0].hasOwnProperty('exe')) {
+            if (!this.game.patches[this.game_patch_offset] ||
+                !this.game.patches[this.game_patch_offset].hasOwnProperty('exe')) {
                 // vyber cesty installeru
                 if (this.installStep == installPages.path && this.popupOpen) {
                     this.fetchError = true;
@@ -606,7 +724,7 @@ export default {
                 }
                 return;
             }
-            path = path + "\\" + this.game.patches[0].exe;
+            path = path + "\\" + this.game.patches[this.game_patch_offset].exe;
             let check = await invoke('file_exists', {
                 path
             });
@@ -616,7 +734,18 @@ export default {
                 return;
             }
             debugPrint(`[checkFolder] ${path} ok`);
+            if (!initial) {
+                // check only for selected patch
+                let patch = this.game.patches[this.game_patch_offset];
+                let version = await this.doPatchCheck(patch);
+                if (version != "original") {
+                    this.isFolderOk = false;
+                }
+                return;
+            }
+            // check all patches
             let checkFiles = await this.doMD5Check();
+            this.game_patch_offset = checkFiles.patch;
             this.game_version = checkFiles.version;
             if (this.game_version == "unknown") {
                 this.isFolderOk = false;
@@ -625,7 +754,7 @@ export default {
             debugPrint(`[checkFolder] ${path} md5 ok`);
             this.isFolderOk = true;
             if (this.game_version == "patched") {
-                this.game_patch_offset = checkFiles.patch;
+                this.gamePatchLocal = checkFiles.patch;
                 await this.saveInstalledPatch(checkFiles.patch);
             }
         },
@@ -637,11 +766,10 @@ export default {
                 path
             }).then((md5) => {
                 hash = md5;
-            }).catch((err) => {
-                debugPrint(`[getMD5] Error: ${err}`);
+            }).catch(() => {
                 hash = null;
             });
-            debugPrint(`[getMD5] ${path} - ${hash}`);
+            debugPrint(`[MD5] ${fileName} - ${hash}`);
             return hash;
         },
         replaceLastLogLine(text) {
@@ -657,16 +785,18 @@ export default {
             }
         },
         async install() {
+            if (this.pathLoading) return;
             this.installStep = installPages.install;
             this.installLog = "Probíhá kontrola souborů<br>";
-            await this.checkFolder();
-            if (!this.isFolderOk) {
+            await this.checkFolder(false);
+            if (!this.isFolderOk && !this.isBackup) {
                 this.fetchError = true;
                 this.fetchErrorText = `Zvolená složka neobsahuje hru.`;
+                this.installStep = installPages.path;
                 return;
             }
             if (this.game_version == "unknown") return;
-            let patch = this.game.patches[0];
+            let patch = this.game.patches[this.game_patch_offset];
             let isPatch = patch.files[0].hasOwnProperty('old');
             let toDownload = patch.zip;
             let filename = toDownload.split("/").pop();
@@ -773,7 +903,7 @@ export default {
                     }
                     let fileToPatch = this.steamPath + file.path;
                     //if backup exists
-                    if (this.is_backup && this.game_version == "patched") {
+                    if (this.isBackup && this.game_version == "patched") {
                         fileToPatch += ".backup";
                     }
                     this.installLog += `Začalo upravování ${file.patch}<br>`;
@@ -860,16 +990,16 @@ export default {
                 }
             }
 
-            this.is_backup = true;
+            this.isBackup = true;
             this.game_version = "patched";
-            this.game_patch_offset = 0;
-            await this.saveInstalledPatch();
+            this.gamePatchLocal = this.game_patch_offset;
+            await this.saveInstalledPatch(this.game_patch_offset);
             this.installStep = installPages.done;
             this.scrollLog();
         },
         async uninstall() {
             this.uninstallLog = "";
-            if (!this.is_backup && this.game.patches[0].files[0].hasOwnProperty('old')) {
+            if (!this.isBackup && this.game.patches[this.game_patch_offset].files[0].hasOwnProperty('old')) {
                 this.uninstallLog += `Hra nemá zálohu<br>Nelze odinstalovat.`;
                 this.uninstallStep++;
                 return;
@@ -880,7 +1010,7 @@ export default {
                 p.version == this.getInstalledPatchVersion(currentGame)
             );
             if (!patch) {
-                patch = this.game.patches[0];
+                patch = this.game.patches[this.game_patch_offset];
             }
             //for every patch file
             let error = false;
@@ -922,7 +1052,7 @@ export default {
                 return;
             }
             this.uninstallLog += `Odinstalace byla dokončena`;
-            this.is_backup = false;
+            this.isBackup = false;
             this.game_version = "original";
             this.uninstallStep++;
             this.scrollLog();
@@ -935,7 +1065,7 @@ export default {
                     version: this.game_version,
                     path: this.steamPath,
                     log,
-                    soubor: this.game.patches[0].version,
+                    soubor: this.game.patches[this.game_patch_offset].version,
                     app_version: await getVersion()
                 }
                 if (this.game_patch_offset != 0) {
@@ -1041,7 +1171,7 @@ export default {
             return false;
         },
         async openGame() {
-            let path = this.steamPath + "\\" + this.game.patches[0].exe;
+            let path = this.steamPath + "\\" + this.game.patches[this.game_patch_offset].exe;
             await openUrl(path).catch((e) => {
                 this.fetchError = true;
                 this.fetchErrorText = `Hru nelze spustit - ${e}`;
@@ -1096,6 +1226,16 @@ export default {
                 return dateString; // fallback to original if parsing fails
             }
         },
+        selectPatchVersion(version) {
+            this.game_patch_offset = version;
+        },
+        isUpdateAvailable() {
+            let firstPatchID = this.canUsePaches[0];
+            let serverPatchVersion = this.game.patches[firstPatchID]?.version;
+            let localPatchVersion = this.game.patches[this.gamePatchLocal]?.version;
+            return this.game_version == "patched" &&
+                serverPatchVersion != localPatchVersion;
+        },
     },
     computed: {
         lastSentenceFromUninstallLog() {
@@ -1128,18 +1268,21 @@ export default {
 
     img {
         width: 100px;
-        //set spin animation
-        animation: spin 1s linear infinite;
+    }
+}
+
+.loading-spin {
+    //set spin animation
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
     }
 
-    @keyframes spin {
-        0% {
-            transform: rotate(0deg);
-        }
-
-        100% {
-            transform: rotate(360deg);
-        }
+    100% {
+        transform: rotate(360deg);
     }
 }
 
@@ -1369,6 +1512,42 @@ export default {
     }
 }
 
+.version-picker {
+    display: flex;
+    gap: 1em;
+    margin-bottom: 1em;
+
+    .version {
+        cursor: pointer;
+        padding: 0.5em 1em;
+        border-radius: 10px;
+        background-color: $bg;
+        transition: all 0.3s ease-in-out;
+        margin: 1em 0;
+        border: 1px solid transparent;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: rgba(0, 0, 0, 0.2);
+
+        &.selected {
+            border-color: $alt;
+            color: white;
+        }
+
+        &.disabled {
+            opacity: 0.5;
+            color: rgba(255, 255, 255, 0.5);
+            cursor: not-allowed;
+        }
+
+        &:hover {
+            background-color: rgba($alt, 0.2);
+            color: white;
+        }
+    }
+}
+
 .small {
     max-height: 60%;
     overflow-y: auto;
@@ -1401,6 +1580,12 @@ export default {
     color: white;
     background-color: rgb(255, 243, 205, .25);
     border-color: #ffeeba;
+}
+
+.alert-success {
+    color: white;
+    background-color: rgb(220, 255, 205, .25);
+    border-color: #c3e6cb;
 }
 
 // progress bar

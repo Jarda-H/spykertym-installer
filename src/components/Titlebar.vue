@@ -11,7 +11,8 @@ import Popup from "./Popup.vue";
             <img src="../assets/logo.png" alt="Spykertým logo">
             <h2>Spykertym Installer
                 <span class="version">{{ version }}
-                    <span v-if="prod">-prod</span>
+                    <span v-if="API_ENDPOINT.startsWith('https://beta')">-beta</span>
+                    <span v-else-if="prod">-prod</span>
                     <span v-else>-dev</span>
                 </span>
             </h2>

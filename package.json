@@ -1,7 +1,7 @@
 {
   "name": "spkyertym-installer",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "b": "set NODE_ENV=production&& tauri build",
-    "d": "set NODE_ENV=development&& tauri dev"
+    "d": "set NODE_ENV=development&& tauri build --features dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.2.0",
