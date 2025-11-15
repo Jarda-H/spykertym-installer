@@ -226,22 +226,6 @@ nav {
 .list {
   overflow: auto;
   width: 100%;
-
-  &::-webkit-scrollbar {
-    width: 20px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background-color: $menu_bg;
-    border-radius: 100px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    border-radius: 100px;
-    border: 5px solid transparent;
-    background-clip: content-box;
-    background-color: $alt;
-  }
 }
 
 .search {

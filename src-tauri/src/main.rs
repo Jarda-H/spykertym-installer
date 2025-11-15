@@ -525,6 +525,60 @@ async fn delete_file(path: String) -> Result<String, String> {
         Err(e) => Err(e.to_string()),
     }
 }
+
+#[derive(serde::Serialize)]
+struct FileCheckResult {
+    file: String,
+    reason: String,
+}
+
+#[tauri::command]
+async fn check_files(files: Vec<String>) -> Result<Vec<FileCheckResult>, String> {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut results = Vec::new();
+
+    for file_path in files {
+        let path = std::path::Path::new(&file_path);
+
+        if !path.exists() {
+            continue;
+        }
+
+        let attempt = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0x0)
+            .open(&path);
+
+        match attempt {
+            Ok(_file) => {}
+            Err(error) => {
+                if let Some(code) = error.raw_os_error() {
+                    let reason = match code {
+                        32 | 33 => "Already in use",
+                        5 => "No rw",
+                        _ => "Other",
+                    };
+                    if reason != "Other" { // only report targeted reasons
+                        let file_name = path
+                            .file_name()
+                            .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+                            .to_string_lossy()
+                            .to_string();
+                        results.push(FileCheckResult {
+                            file: file_name,
+                            reason: reason.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
 #[tauri::command]
 async fn update_the_app(url: String, window: tauri::Window) -> Result<String, String> {
     let current_exe_name = std::env::current_exe()
@@ -594,6 +648,7 @@ fn main() {
             copy_and_replace,
             get_temp_dir,
             delete_file,
+            check_files,
             update_the_app
         ])
         .run(tauri::generate_context!())

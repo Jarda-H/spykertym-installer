@@ -46,7 +46,8 @@ import { ref } from "vue";
                         <img src="../assets/redownload.svg" alt="Redownload icon">
                         Aktualizovat
                     </a>
-                    <a class="btn" @click="openInstallPopup" v-else-if="game.patches[gamePatchLocal] && game_version == 'patched'">
+                    <a class="btn" @click="openInstallPopup"
+                        v-else-if="game.patches[gamePatchLocal] && game_version == 'patched'">
                         <img src="../assets/redownload.svg" alt="Redownload icon">
                         Přeinstalovat
                     </a>
@@ -119,6 +120,11 @@ import { ref } from "vue";
         <div class="install" ref="install" v-bind:class="{ 'hidden': !popupOpen }">
             <div class="step version-picker" ref="version-picker" v-if="installStep == installPages.version_picker">
                 <h2 class="title">Vyberte verzi češtiny</h2>
+                <div class="actions">
+                    <a class="btn" @click="installStep = installPages.path">
+                        Zpět
+                    </a>
+                </div>
                 <div class="versions">
                     <div class="version" v-for="(patch, index) in game.patches" :key="index"
                         @click="selectPatchVersion(index); installStep = installPages.path" v-bind:class="{
@@ -132,14 +138,10 @@ import { ref } from "vue";
                         </span>
                     </div>
                 </div>
-                <div class="actions">
-                    <a class="btn" @click="installStep = installPages.path">
-                        Zpět
-                    </a>
-                </div>
             </div>
             <div class="step" v-else-if="installStep == installPages.path">
-                <h2 class="title" v-if="game_version == 'patched' && game_patch_offset != gamePatchLocal">Aktualizace překladu</h2>
+                <h2 class="title" v-if="game_version == 'patched' && game_patch_offset != gamePatchLocal">Aktualizace
+                    překladu</h2>
                 <h2 class="title" v-else>Instalace překladu</h2>
                 <div v-if="game && game.patches.length" class="about-patch">
                     <div class="info">
@@ -194,7 +196,8 @@ import { ref } from "vue";
                         <img src="../assets/folder.svg" alt="Folder icon">
                         Vybrat
                     </a>
-                    <a class="btn" @click="install" v-if="game_version == 'patched' && gamePatchLocal == game_patch_offset">
+                    <a class="btn" @click="install"
+                        v-if="game_version == 'patched' && gamePatchLocal == game_patch_offset">
                         Přeinstalovat
                         <img src="../assets/next.svg" alt="next step">
                     </a>
@@ -273,7 +276,8 @@ import { ref } from "vue";
             </div>
         </div>
     </div>
-    <Popup :active="fetchError" title="Chyba" :body="fetchErrorText" type="close" @close="fetchError = false" />
+    <Popup :active="fetchError" :title="fetchTitle || 'Chyba'" :body="fetchErrorText" type="close"
+        @close="fetchError = false" />
 </template>
 <script>
 const installPages = {
@@ -311,6 +315,7 @@ export default {
             gamePatchLocal: -1,
             canUsePaches: [],
             //errors
+            fetchTitle: "",
             fetchError: false,
             fetchErrorText: "",
             // steam header img
@@ -796,7 +801,45 @@ export default {
                 return;
             }
             if (this.game_version == "unknown") return;
+
             let patch = this.game.patches[this.game_patch_offset];
+
+            // check if files are ready
+            let filesToCheck = patch.files.map(file => {
+                if (patch.unzip_path) {
+                    return this.steamPath + `\\${patch.unzip_path}\\` + file.path;
+                }
+                return this.steamPath + file.path;
+            });
+
+            let fileChecks = await invoke('check_files', { files: filesToCheck });
+
+            if (Array.isArray(fileChecks) && fileChecks.length) {
+                const inUse = fileChecks.filter(f => f.reason === 'Already in use').map(f => f.file);
+                const noRw = fileChecks.filter(f => f.reason === 'No rw').map(f => f.file);
+
+                const parts = [];
+                if (inUse.length) {
+                    parts.push(`<b>Soubory jsou používány jiným procesem</b>`);
+                    parts.push(`Soubory: ${inUse.join(', ')}`);
+                    parts.push(`<br><h3>Jak opravit?</h3>`);
+                    parts.push(`<b>- Zavřete prosím hru a zkuste to znovu.</b>`);
+                    parts.push(`<b>- Pokud problém přetrvává, restartujte počítač.</b>`);
+                }
+                if (noRw.length) {
+                    parts.push(`<b>Nedostatečná práva k zápisu/čtení souborů</b>`);
+                    parts.push(`Soubory: ${noRw.join(', ')}`);
+                    parts.push(`<br><h3>Jak opravit?</h3>`);
+                    parts.push(`<b>- Spusťte instalátor jako administrátor a zkuste to znovu.</b>`);
+                }
+                this.fetchError = true;
+                const paras = parts.map(p => `<p>${p}</p>`).join('');
+                this.fetchTitle = "Chyba - soubory nelze upravit";
+                this.fetchErrorText = paras
+                this.installStep = installPages.path;
+                return;
+            }
+
             let isPatch = patch.files[0].hasOwnProperty('old');
             let toDownload = patch.zip;
             let filename = toDownload.split("/").pop();
@@ -1290,22 +1333,6 @@ export default {
     height: 100vh;
     width: 70%;
     overflow-y: auto;
-
-    &::-webkit-scrollbar {
-        width: 20px;
-    }
-
-    &::-webkit-scrollbar-track {
-        background-color: #e4e4e417;
-        border-radius: 100px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-        border-radius: 100px;
-        border: 5px solid transparent;
-        background-clip: content-box;
-        background-color: $alt;
-    }
 }
 
 .select-a-game {
@@ -1452,6 +1479,7 @@ export default {
         min-width: 80%;
         max-width: 90%;
         max-height: 60%;
+        overflow: overlay;
 
         .log {
             overflow-y: auto;
