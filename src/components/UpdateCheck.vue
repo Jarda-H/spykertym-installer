@@ -33,6 +33,10 @@ export default {
         fetch(this.API_ENDPOINT + "version")
             .then((res) => res.json())
             .then((data) => {
+                if(data.error) {
+                    console.error("Chyba při kontrole aktualizací:", data.response || "neznámá chyba");
+                    return;
+                }
                 this.remoteVersion = data.version;
                 this.link = data.link;
                 let cmp = this.cmpVersions(this.remoteVersion, this.currentVersion);

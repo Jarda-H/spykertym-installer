@@ -5,28 +5,48 @@ use std::io;
 use std::io::Write;
 use tauri::Emitter;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+#[derive(Debug)]
+enum SystemName {
+    Windows,
+    MacOS,
+    Linux,
+    Unknown,
+}
+
+fn get_system_name() -> SystemName {
+    if cfg!(target_os = "windows") {
+        SystemName::Windows
+    } else if cfg!(target_os = "macos") {
+        SystemName::MacOS
+    } else if cfg!(target_os = "linux") {
+        SystemName::Linux
+    } else {
+        SystemName::Unknown
+    }
 }
 
 #[tauri::command]
 async fn steam_is_installed() -> Result<String, String> {
-    let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-    let mut subkey = key
-        .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
-        .unwrap();
-    let mut value: String = subkey.get_value("InstallPath").unwrap();
-    if value.is_empty() {
-        //try 32 bit
-        key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-        subkey = key.open_subkey("SOFTWARE\\Valve\\Steam").unwrap();
-        value = subkey.get_value("InstallPath").unwrap();
+    let system = get_system_name();
+    if let SystemName::Windows = system {
+        let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+        let mut subkey = key
+            .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
+            .unwrap();
+        let mut value: String = subkey.get_value("InstallPath").unwrap();
+        if value.is_empty() {
+            //try 32 bit
+            key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+            subkey = key.open_subkey("SOFTWARE\\Valve\\Steam").unwrap();
+            value = subkey.get_value("InstallPath").unwrap();
+        }
+        if value.is_empty() {
+            return Err("Steam nebyl nalezen".into());
+        }
+        Ok(value.into())
+    } else {
+        Err("Tato funkce je podporována pouze na Windows".into())
     }
-    if value.is_empty() {
-        return Err("Steam nebyl nalezen".into());
-    }
-    Ok(value.into())
 }
 
 #[tauri::command]
@@ -74,8 +94,13 @@ async fn download(url: String, filename: String, window: tauri::Window) -> Resul
     let path = std::env::temp_dir().join(filename.clone());
     println!("Saving downloaded file to: {:?}", path);
 
+    static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+    println!("Using User-Agent: {}", APP_USER_AGENT);
     // Use reqwest's async client instead of blocking
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent(APP_USER_AGENT)
+        .build()
+        .map_err(|e| format!("Nepodařilo se vytvořit HTTP klienta: {}", e))?;
 
     // get the response
     let response = match client.get(&url).send().await {
@@ -325,21 +350,46 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
-    let xdelta3 = include_bytes!("./xdelta.exe");
     use futures::channel::oneshot;
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use std::thread;
-    let no_win: u32 = 0x08000000;
 
-    // spawn xdelta in temp
     let mut temp_path = std::env::temp_dir();
-    temp_path.push("xdelta3.exe");
-    // if xdelta3.exe doesn't exist, create it
-    if !temp_path.exists() {
-        let mut file = std::fs::File::create(&temp_path).unwrap();
-        file.write_all(xdelta3).unwrap();
+    let no_win: u32 = 0x08000000;
+    let system_name = get_system_name();
+    println!("System: {:?}", system_name);
+    match system_name {
+        SystemName::Windows => {
+            let xdelta3 = include_bytes!("./xdelta.exe");
+
+            // spawn xdelta in temp
+            temp_path.push("xdelta3.exe");
+            // if xdelta3.exe doesn't exist, create it
+            if !temp_path.exists() {
+                let mut file = std::fs::File::create(&temp_path).unwrap();
+                file.write_all(xdelta3).unwrap();
+            }
+        }
+        SystemName::Linux => {
+            // check if xdelta3 is installed
+            let check = std::process::Command::new("which").arg("xdelta3").output();
+            match check {
+                Ok(output) => {
+                    if !output.status.success() {
+                        return Err("Nástroj xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
+                    }
+                }
+                Err(_) => {
+                    return Err("Nástroj xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
+                }
+            }
+        }
+        _ => {
+            return Err("Nepodporovaný systém".into());
+        }
     }
+
     //if the path ends with .backup, rename it to be without the .backup
     if path.ends_with(".backup") {
         let old_path = std::path::Path::new(&path);
@@ -561,7 +611,8 @@ async fn check_files(files: Vec<String>) -> Result<Vec<FileCheckResult>, String>
                         5 => "No rw",
                         _ => "Other",
                     };
-                    if reason != "Other" { // only report targeted reasons
+                    if reason != "Other" {
+                        // only report targeted reasons
                         let file_name = path
                             .file_name()
                             .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
@@ -630,11 +681,11 @@ async fn update_the_app(url: String, window: tauri::Window) -> Result<String, St
 }
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            greet,
             steam_is_installed,
             get_steam_vdf,
             file_exists,

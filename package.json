@@ -1,7 +1,7 @@
 {
   "name": "spkyertym-installer",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,12 +10,13 @@
     "tauri": "tauri",
     "update-packages": "npx npm-check-updates -u && npm install",
     "b": "set NODE_ENV=production&& tauri build",
-    "d": "set NODE_ENV=development&& tauri build --features dev"
+    "d": "set NODE_ENV=development&& tauri dev --features dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-opener": "^2.5.2",
+    "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-shell": "^2.3.3",
     "pinia": "^3.0.4",
     "vdf-parser": "^1.2.1",

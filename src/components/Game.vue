@@ -8,10 +8,10 @@ import { open as openExplorer } from '@tauri-apps/plugin-dialog';
 import { desktopDir } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { platform } from '@tauri-apps/plugin-os';
 
 import * as VDF from "vdf-parser";
 import Popup from "./Popup.vue";
-import { ref } from "vue";
 </script>
 
 <template>
@@ -325,7 +325,8 @@ export default {
                 speed: 0,
                 total: 0,
                 current: 0
-            }
+            },
+            platform: platform() || "unknown"
         };
     },
     mounted() {
@@ -690,7 +691,13 @@ export default {
             if (this.game_version == "patched" && this.game_patch_offset != 0) {
                 this.selectPatchVersion(this.canUsePaches[0]);
             }
-
+            console.log("running on", this.platform);
+            if (this.platform === 'linux' || this.platform === 'macos') {
+                this.fetchError = true;
+                this.fetchErrorText = "Před instalací se ujistěte, že máte nainstalovaný package 'xdelta3'. Pokud problém přetrvává, kontaktujte nás.";
+                this.platform = "linux-alert-shown";
+                return;
+            }
             this.popupOpen = true;
         },
         closeInstallPopup() {
