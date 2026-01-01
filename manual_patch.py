@@ -2,34 +2,52 @@ import os
 import json
 
 # NUTNO UPRAVIT PODLE VLASTNIHO UMISTENI HRY!
-CESTA_KE_HRE = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\[HRA]"
-JMENO_JSON_SOUBORU = "manual.json"
-XDELTA_EXE = "xdelta3-3.0.11-x86_64.exe"
+CESTA_KE_HRE = r"C:\Program Files (x86)\Steam\steamapps\common\[HRA]"
+JMENO_JSON_SOUBORU = "patch.json"  # jmeno json souboru s patchem
+XDELTA_EXE = "xdelta3-3.0.11-x86_64.exe"  # cesta k xdelta3 exe
 
 
 def md5(path):
     return os.popen(f'certutil -hashfile "{path}" MD5').read().split("\n")[1]
 
+def end(errCode=1):
+    print("Stiskněte Enter pro ukončení...")
+    input()
+    exit(errCode)
 
 # check if json file exists
 if not os.path.exists(JMENO_JSON_SOUBORU):
     print(f"Soubor s patchem {JMENO_JSON_SOUBORU} neexistuje")
-    exit()
+    end()
 
 # load json file
 with open(JMENO_JSON_SOUBORU, "r") as f:
     if not f.read():
         print("Soubor s patchem je prazdny")
-        exit()
+        end()
     f.seek(0)
     data = json.load(f)
     if data["error"]:
         print("Chyba v souboru s patchem")
-        exit()
+        end()
     patch = data["patch"]
+
+    if patch.get("unzip_path"):
+        print(
+            f"Stačí rozbalit do složky s hrou: {patch['unzip_path']} - není potřeba spouštět tento skript."
+        )
+        end(0)
+
+    # check if xdelta exe exists
+    if not os.path.exists(XDELTA_EXE):
+        print(f"Exe soubor {XDELTA_EXE} neexistuje")
+        end()
 
     for file in patch["files"]:
         file_path = os.path.join(CESTA_KE_HRE, file["path"].lstrip("\\"))
+        if not os.path.exists(file_path):
+            print(f"Soubor hry {file["path"]} neexistuje")
+            end()
         old_md5 = file["old"]
         # check if the file file is ok
         current_md5 = md5(file_path)
@@ -37,7 +55,7 @@ with open(JMENO_JSON_SOUBORU, "r") as f:
             print(
                 f"MD5 kontrola souboru {file["path"]} selhala. Máte originální verzi hry? {current_md5} != {old_md5}"
             )
-            exit()
+            end()
 
     for file in patch["files"]:
         file_path = os.path.join(CESTA_KE_HRE, file["path"].lstrip("\\"))
@@ -47,8 +65,11 @@ with open(JMENO_JSON_SOUBORU, "r") as f:
             print(
                 f"Soubor s patchem {patch_file} neexistuje. Rozbalili jste zip s patch soubory do aktuální složky?"
             )
-            exit()
+            end()
         new_file = os.path.join(CESTA_KE_HRE, file["path"].lstrip("\\") + ".new")
+        # check if new file already exists (most likely from previous tries)
+        if os.path.exists(new_file):
+            os.remove(new_file)
         # patch the file
         patch = os.system(
             f'{XDELTA_EXE} -d -s "{file_path}" "{patch_file}" "{new_file}"'
@@ -56,16 +77,19 @@ with open(JMENO_JSON_SOUBORU, "r") as f:
         # check if the file was patched
         if patch != 0:
             print(f"Chyba pri uprave souboru {file["path"]}")
-            exit()
+            end()
         # rename the old file to .backup
-        os.rename(file_path, file_path + ".backup")
+        backup_path = file_path + ".backup"
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+        os.rename(file_path, backup_path)
         # rename the new file to the original name
         os.rename(new_file, file_path)
 
         # check if the file was patched correctly
         if md5(file_path) != file["new"]:
             print(f"MD5 kontrola souboru {file["path"]} selhala")
-            exit()
+            end()
         f.close()
         print(f"Soubor {file["path"]} byl upraven")
 print("Vsechny soubory byly upraveny")
