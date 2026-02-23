@@ -16,11 +16,29 @@ import Popup from "./Popup.vue";
                     <span v-else>-dev</span>
                 </span>
             </h2>
-            <div class="titlebar-btn settings" @click="checkUpdates">
-                <h2>Zkontrolovat aktualizace češtin</h2>
+            <div class="titlebar-btn settings" @click="checkUpdates" title="Aktualizace nainstalovaných češtin">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M12 21q-1.875 0-3.512-.712t-2.85-1.925t-1.925-2.85T3 12t.713-3.512t1.924-2.85t2.85-1.925T12 3q2.05 0 3.888.875T19 6.35V4h2v6h-6V8h2.75q-1.025-1.4-2.525-2.2T12 5Q9.075 5 7.038 7.038T5 12t2.038 4.963T12 19q2.625 0 4.588-1.7T18.9 13h2.05q-.375 3.425-2.937 5.713T12 21m2.8-4.8L11 12.4V7h2v4.6l3.2 3.2z" />
+                </svg>
+                <h2>Aktualizace češtin</h2>
             </div>
-            <div class="titlebar-btn settings" @click="openGH">
+            <div class="titlebar-btn settings" @click="openGH" title="Stránka installeru na GitHubu">
                 <img src="../assets/github.svg" alt="GitHub logo">
+            </div>
+            <div class="titlebar-btn settings" @click="openContact">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M2 22V4q0-.825.588-1.412T4 2h16q.825 0 1.413.588T22 4v12q0 .825-.587 1.413T20 18H6zm10-7q.425 0 .713-.288T13 14t-.288-.712T12 13t-.712.288T11 14t.288.713T12 15m-1-4h2V5h-2z" />
+                </svg>
+                <h2>Zpětná vazba</h2>
+            </div>
+            <div v-if="!prod" class="api-toggle">
+                <label>API Mode:</label>
+                <div class="toggle-switch" @click="toggleAPI">
+                    <div class="toggle-slider" :class="{ active: isUsingBeta }"></div>
+                </div>
+                <span class="api-label">{{ isUsingBeta ? 'Beta' : 'Prod' }}</span>
             </div>
         </div>
         <div class="btns">
@@ -54,11 +72,20 @@ export default {
         return {
             version: "",
             popup: false,
-            checkOut: ""
+            checkOut: "",
+            isUsingBeta: true
         }
     },
     async mounted() {
         this.version = await getVersion();
+        
+        // Load API mode preference from localStorage
+        const savedAPIMode = localStorage.getItem("api_mode");
+        if (savedAPIMode === "prod") {
+            this.isUsingBeta = false;
+        } else {
+            this.isUsingBeta = true;
+        }
     },
     methods: {
         min() {
@@ -132,6 +159,28 @@ export default {
         },
         async openGH() {
             await openUrl("https://github.com/Jarda-H/spykertym-installer/");
+        },
+        async openContact() {
+            await openUrl("https://spykertym.cz/kontakt");
+        },
+        toggleAPI() {
+            this.isUsingBeta = !this.isUsingBeta;
+            
+            if (this.isUsingBeta) {
+                const newEndpoint = 'https://beta.spykertym.cz/app/';
+                // Update global property that all components use
+                this.$root.$globalProperties.API_ENDPOINT = newEndpoint;
+                // Also fallback update for any direct access
+                window.API_ENDPOINT = newEndpoint;
+                localStorage.setItem("api_mode", "beta");
+            } else {
+                const newEndpoint = 'https://spykertym.cz/app/';
+                // Update global property that all components use
+                this.$root.$globalProperties.API_ENDPOINT = newEndpoint;
+                // Also fallback update for any direct access
+                window.API_ENDPOINT = newEndpoint;
+                localStorage.setItem("api_mode", "prod");
+            }
         }
     }
 };
@@ -181,6 +230,7 @@ export default {
     width: 30px;
     height: 30px;
     transition: .2s background;
+    color: white;
 
     &:hover {
         background: rgba(0, 0, 0, 0.2);
@@ -194,10 +244,61 @@ export default {
         &:hover {
             background: rgba(0, 0, 0, 0.6);
         }
+
+        h2 {
+            margin-left: 5px;
+            font-size: 12px;
+        }
     }
 }
 
 .version {
     font-size: .7em;
+}
+
+.api-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 10px;
+    color: white;
+    font-size: 12px;
+
+    label {
+        margin: 0;
+    }
+}
+
+.toggle-switch {
+    position: relative;
+    width: 40px;
+    height: 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.3s;
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.5);
+    }
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.3s;
+
+    &.active {
+        left: 22px;
+    }
+}
+
+.api-label {
+    min-width: 30px;
 }
 </style>

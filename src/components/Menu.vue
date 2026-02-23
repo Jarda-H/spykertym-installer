@@ -7,7 +7,7 @@ import Popup from "./Popup.vue";
     <div class="filters">
       <button ref="select-all" class="selected" @click="selectOneFilter($event), searchGame()">Vše</button>
       <button @click="filterByDone">Dokončeno</button>
-      <button @click="filterByPatch">Dostupný patch</button>
+      <button @click="filterByPatch">Dostupná čeština</button>
     </div>
     <div class="search">
       <input type="text" placeholder="Hledat hru..." ref="search" @input="searchGame">

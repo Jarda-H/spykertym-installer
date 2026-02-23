@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "update-packages": "npx npm-check-updates -u && npm install",
     "b": "set NODE_ENV=production&& tauri build",
-    "d": "set NODE_ENV=development&& tauri dev --features dev"
+    "d": "set NODE_ENV=development&& tauri dev --features dev",
+    "beta": "set NODE_ENV=development&& tauri build --features dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

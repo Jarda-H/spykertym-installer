@@ -3,17 +3,21 @@
 Instalátor patchů do her.
 [Web](https://spykertym.cz)
 
+## Prerekvizity
+
+[Node.js](https://nodejs.org/en/download), [Rust](https://rust-lang.org/tools/install/)
+
 ## Jak spustit
-
-### Dev verze
-> (beta server může být kdykoliv vypnut, nemusí být aktuální, avšak může mít nové funkce)
-
-```npm run d```
 
 ### Public verze - build
 > Veřejný server
 
 ```npm run b```
+
+### Dev verze
+> (beta server může být kdykoliv vypnut, nemusí být aktuální, avšak může mít nové funkce)
+
+```npm run d```
 
 ## Problémy
 

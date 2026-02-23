@@ -5,10 +5,10 @@ import { menuWidth } from "./store/MenuWidth.js";
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openExplorer } from '@tauri-apps/plugin-dialog';
-import { desktopDir } from '@tauri-apps/api/path';
+import { desktopDir, join as joinPath, basename } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { platform } from '@tauri-apps/plugin-os';
+import { platform as getPlatform } from '@tauri-apps/plugin-os';
 
 import * as VDF from "vdf-parser";
 import Popup from "./Popup.vue";
@@ -326,7 +326,7 @@ export default {
                 total: 0,
                 current: 0
             },
-            platform: platform() || "unknown"
+            platform: getPlatform() || "unknown"
         };
     },
     mounted() {
@@ -348,7 +348,7 @@ export default {
             this.updateGameViewWidth(state.CurrentWidth);
         });
         this.updateGameViewWidth(localStorage.getItem('nav-width'));
-        // TODO: listen for loadingInfo changes and get random bs text
+
         let setupedInterval = false;
         this.$watch('loadingInfo', (newVal) => {
             if (setupedInterval) return;
@@ -362,7 +362,7 @@ export default {
                 }
                 if (this.$refs.loadingInfo) {
                     newText += "."
-                    this.$refs.loadingRandomTexts.innerHTML = newText; // zmenit na random hlasky
+                    this.$refs.loadingRandomTexts.innerHTML = newText;
                 }
                 if (newText.length > 10) {
                     newText = ".";
@@ -398,24 +398,38 @@ export default {
             }
         },
         async checkBackup(fileToCheck, currentPatch) {
+            let isZip = this.game.patches[this.game_patch_offset]?.hasOwnProperty('unzip_path');
             let patchPath = fileToCheck + ".backup";
-            let fileName = fileToCheck.split('\\').pop();
+            let fileName = await basename(fileToCheck);
+            if (isZip) {
+                patchPath = fileToCheck;
+            }
+            console.log("[checkBackup]", patchPath, isZip);
             // check if file exists first
             let check = await invoke('file_exists', {
                 path: patchPath
             });
-            if (check == "true") {
-                let md5_backup = await this.getMD5(fileToCheck + ".backup");
-                if (md5_backup == currentPatch.old) {
-                    debugPrint(`[MD5] Found backup: ${fileName}`);
-                    this.isBackup = true;
-                }
+            if (check != "true") {
+                return;
+            }
+            if (isZip) {
+                this.isBackup = true;
+                return;
+            }
+            let md5_backup = await this.getMD5(patchPath);
+            if (md5_backup == currentPatch.old) {
+                debugPrint(`[MD5] Found backup: ${fileName}`);
+                this.isBackup = true;
             }
         },
         loadingInfo(text) {
             if (this.$refs.loadingInfo) {
                 this.$refs.loadingInfo.innerHTML = text;
             }
+        },
+        normalizePath(path) {
+            if (!path) return path;
+            return path.replace(/\\/g, '/');
         },
         async doPatchCheck(patch) {
             let zipFiles = patch.files;
@@ -424,9 +438,11 @@ export default {
             let unknown = false;
             for (let i = 0; i < zipFiles.length; i++) {
                 let currentPatch = zipFiles[i];
-                let fileToCheck = this.steamPath + currentPatch.path;
+                let fileToCheck;
                 if (patch.unzip_path) {
-                    fileToCheck = this.steamPath + `\\${patch.unzip_path}\\` + currentPatch.path;
+                    fileToCheck = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(currentPatch.path));
+                } else {
+                    fileToCheck = await joinPath(this.steamPath, this.normalizePath(currentPatch.path));
                 }
                 let md5 = await this.getMD5(fileToCheck);
                 switch (md5) {
@@ -487,7 +503,13 @@ export default {
                         this.canUsePaches.push(i);
                         // check if backup exists
                         if (!this.isBackup) {
-                            await this.checkBackup(this.steamPath + patch.files[i].path, patch.files[i]);
+                            let checkPath;
+                            if (patch.hasOwnProperty('unzip_path')) {
+                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(patch.files[i].path));
+                            } else {
+                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.files[i].path));
+                            }
+                            await this.checkBackup(checkPath, patch.files[i]);
                         }
                     }
                     if (tempVersion == "original") {
@@ -582,7 +604,7 @@ export default {
                 try {
                     gamePath = await this.getSteamGamePath(data.game.steam);
                 } catch (err) {
-                    //TODO handle error better
+                    debugPrint("[updateGame] Could not get game path from steam:", err);
                 }
                 this.steamPath = gamePath;
             }
@@ -661,7 +683,9 @@ export default {
                                 resolve(
                                     `${path}\\steamapps\\common\\${folder}`);
                             }
-                        })
+                        }).catch((e) => {
+                            reject(e);
+                        });
                 }
                 reject("game not found in steam vdf");
             })
@@ -686,19 +710,24 @@ export default {
                 this.pathLoading = false;
             }
         },
-        openInstallPopup() {
+        async openInstallPopup() {
             // if is to update, select the newest patch
             if (this.game_version == "patched" && this.game_patch_offset != 0) {
                 this.selectPatchVersion(this.canUsePaches[0]);
             }
             console.log("running on", this.platform);
-            if (this.platform === 'linux' || this.platform === 'macos') {
-                this.fetchError = true;
-                this.fetchErrorText = "Před instalací se ujistěte, že máte nainstalovaný package 'xdelta3'. Pokud problém přetrvává, kontaktujte nás.";
-                this.platform = "linux-alert-shown";
-                return;
-            }
-            this.popupOpen = true;
+            await invoke('check_xdelta').then((hasXdelta) => {
+                console.log("xdelta check", hasXdelta);
+                if (!hasXdelta) {
+                    this.fetchError = true;
+                    this.fetchErrorText = "Před instalací se ujistěte, že máte nainstalovaný package 'xdelta3'. Pokud problém přetrvává, kontaktujte nás.";
+                    this.platform = "linux-alert-shown";
+                    return;
+                }
+                this.popupOpen = true;
+            }).catch((e) => {
+                this.unknownErrorAlert(e);
+            });
         },
         closeInstallPopup() {
             this.installStep = installPages.path;
@@ -736,7 +765,7 @@ export default {
                 }
                 return;
             }
-            path = path + "\\" + this.game.patches[this.game_patch_offset].exe;
+            path = await joinPath(path, this.game.patches[this.game_patch_offset].exe);
             let check = await invoke('file_exists', {
                 path
             });
@@ -771,14 +800,16 @@ export default {
             }
         },
         async getMD5(path) {
-            let fileName = path.split('\\').pop();
+            let fileName = await basename(path);
+            debugPrint(`[MD5] Checking ${path}`);
             this.loadingInfo(`Kontrolování souboru <b>${fileName}</b>`);
             let hash = null;
             await invoke('get_md5', {
                 path
             }).then((md5) => {
                 hash = md5;
-            }).catch(() => {
+            }).catch((e) => {
+                this.unknownErrorAlert(e);
                 hash = null;
             });
             debugPrint(`[MD5] ${fileName} - ${hash}`);
@@ -810,16 +841,21 @@ export default {
             if (this.game_version == "unknown") return;
 
             let patch = this.game.patches[this.game_patch_offset];
+            let isZip = patch.hasOwnProperty('unzip_path') ? true : false;
 
             // check if files are ready
-            let filesToCheck = patch.files.map(file => {
+            let filesToCheck = await Promise.all(patch.files.map(async file => {
                 if (patch.unzip_path) {
-                    return this.steamPath + `\\${patch.unzip_path}\\` + file.path;
+                    return await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(file.path));
                 }
-                return this.steamPath + file.path;
-            });
+                return await joinPath(this.steamPath, this.normalizePath(file.path));
+            }));
 
-            let fileChecks = await invoke('check_files', { files: filesToCheck });
+            let fileChecks = await invoke('check_files', {
+                files: filesToCheck,
+                basePath: this.steamPath,
+                isZip
+            });
 
             if (Array.isArray(fileChecks) && fileChecks.length) {
                 const inUse = fileChecks.filter(f => f.reason === 'Already in use').map(f => f.file);
@@ -827,15 +863,23 @@ export default {
 
                 const parts = [];
                 if (inUse.length) {
-                    parts.push(`<b>Soubory jsou používány jiným procesem</b>`);
-                    parts.push(`Soubory: ${inUse.join(', ')}`);
+                    if (isZip) {
+                        parts.push(`<b>Adresář je již používaný jiným procesem</b>`);
+                    } else {
+                        parts.push(`<b>Soubory jsou používány jiným procesem</b>`);
+                        parts.push(`Soubory: ${inUse.join(', ')}`);
+                    }
                     parts.push(`<br><h3>Jak opravit?</h3>`);
                     parts.push(`<b>- Zavřete prosím hru a zkuste to znovu.</b>`);
                     parts.push(`<b>- Pokud problém přetrvává, restartujte počítač.</b>`);
                 }
                 if (noRw.length) {
-                    parts.push(`<b>Nedostatečná práva k zápisu/čtení souborů</b>`);
-                    parts.push(`Soubory: ${noRw.join(', ')}`);
+                    if (isZip) {
+                        parts.push(`<b>Nedostatečná práva k zápisu souborů v adresáři</b>`);
+                    } else {
+                        parts.push(`<b>Nedostatečná práva k zápisu/čtení souborů</b>`);
+                        parts.push(`Soubory: ${noRw.join(', ')}`);
+                    }
                     parts.push(`<br><h3>Jak opravit?</h3>`);
                     parts.push(`<b>- Spusťte instalátor jako administrátor a zkuste to znovu.</b>`);
                 }
@@ -981,10 +1025,12 @@ export default {
                     let newFilename = newFile.split("\\").pop();
                     let post = newFile.split(tmp + zipFolder).pop();
                     //upzip path
+                    let dest;
                     if (patch.unzip_path) {
-                        post = `\\${patch.unzip_path}` + post;
+                        dest = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), post);
+                    } else {
+                        dest = await joinPath(this.steamPath, post);
                     }
-                    let dest = this.steamPath + post;
                     debugPrint(newFile, dest)
                     this.installLog += `Začátek kopírování souboru ${newFilename}<br>`;
                     await invoke('copy_and_replace', {
@@ -1067,9 +1113,11 @@ export default {
             await Promise.all(patch.files.map(async file => {
                 if (!file.old) {
                     //delete the file
-                    let fileToDelete = this.steamPath + file.path;
+                    let fileToDelete;
                     if (patch.unzip_path) {
-                        fileToDelete = this.steamPath + `\\${patch.unzip_path}\\` + file.path;
+                        fileToDelete = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(file.path));
+                    } else {
+                        fileToDelete = await joinPath(this.steamPath, this.normalizePath(file.path));
                     }
                     let filename = fileToDelete.split("\\").pop();
                     await invoke('delete_file', {
@@ -1083,7 +1131,7 @@ export default {
                     this.scrollLog();
                     return;
                 }
-                let fileToRenew = this.steamPath + file.path + ".backup";
+                let fileToRenew = await joinPath(this.steamPath, this.normalizePath(file.path), ".backup");
 
                 await invoke('backup_renew', {
                     path: fileToRenew
@@ -1286,6 +1334,10 @@ export default {
             return this.game_version == "patched" &&
                 serverPatchVersion != localPatchVersion;
         },
+        unknownErrorAlert(e) {
+            this.fetchError = true;
+            this.fetchErrorText = `Došlo k neznámé chybě. Zkuste to prosím znovu, případně nás kontaktujte. Detail chyby: ${e.message || e}`;
+        }
     },
     computed: {
         lastSentenceFromUninstallLog() {

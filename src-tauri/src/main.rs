@@ -1,9 +1,20 @@
 // Windows release, remove the console window
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use dotenv_codegen::dotenv;
+use futures::channel::oneshot;
+use sha2::Digest;
+use std::fs::OpenOptions;
 use std::io;
 use std::io::Write;
+use std::process::Command;
+use std::thread;
 use tauri::Emitter;
+
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 #[derive(Debug)]
 enum SystemName {
@@ -27,8 +38,12 @@ fn get_system_name() -> SystemName {
 
 #[tauri::command]
 async fn steam_is_installed() -> Result<String, String> {
-    let system = get_system_name();
-    if let SystemName::Windows = system {
+    #[cfg(not(windows))]
+    {
+        Err("TODO".into())
+    }
+    #[cfg(windows)]
+    {
         let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
         let mut subkey = key
             .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
@@ -44,38 +59,43 @@ async fn steam_is_installed() -> Result<String, String> {
             return Err("Steam nebyl nalezen".into());
         }
         Ok(value.into())
-    } else {
-        Err("Tato funkce je podporována pouze na Windows".into())
     }
 }
 
 #[tauri::command]
 async fn get_steam_vdf() -> Result<String, String> {
-    let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-    let mut subkey = key
-        .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
-        .unwrap();
-    let mut value: String = subkey.get_value("InstallPath").unwrap();
-    if value.is_empty() {
-        //try 32 bit
-        key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-        subkey = key.open_subkey("SOFTWARE\\Valve\\Steam").unwrap();
-        value = subkey.get_value("InstallPath").unwrap();
+    #[cfg(not(windows))]
+    {
+        return Err("TODO".into());
     }
-    if value.is_empty() {
-        return Err("Steam nebyl nalezen".into());
-    }
-    // get steam library - steam path + steamapps/libraryfolders.vdf
-    let mut steam_library = value.clone();
-    steam_library.push_str("\\steamapps\\libraryfolders.vdf");
+    #[cfg(windows)]
+    {
+        let mut key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+        let mut subkey = key
+            .open_subkey("SOFTWARE\\Wow6432Node\\Valve\\Steam")
+            .unwrap();
+        let mut value: String = subkey.get_value("InstallPath").unwrap();
+        if value.is_empty() {
+            //try 32 bit
+            key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+            subkey = key.open_subkey("SOFTWARE\\Valve\\Steam").unwrap();
+            value = subkey.get_value("InstallPath").unwrap();
+        }
+        if value.is_empty() {
+            return Err("Steam nebyl nalezen".into());
+        }
+        // get steam library - steam path + steamapps/libraryfolders.vdf
+        let mut steam_library = value.clone();
+        steam_library.push_str("\\steamapps\\libraryfolders.vdf");
 
-    // read libraryfolders.vdf
-    let file = std::fs::read_to_string(steam_library);
-    if file.is_err() {
-        return Err("Nepodařilo se otevřít soubor libraryfolders.vdf".into());
+        // read libraryfolders.vdf
+        let file = std::fs::read_to_string(steam_library);
+        if file.is_err() {
+            return Err("Nepodařilo se otevřít soubor libraryfolders.vdf".into());
+        }
+        let file = file.unwrap();
+        Ok(file)
     }
-    let file = file.unwrap();
-    Ok(file)
 }
 
 #[tauri::command]
@@ -350,13 +370,8 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
-    use futures::channel::oneshot;
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-    use std::thread;
-
     let mut temp_path = std::env::temp_dir();
-    let no_win: u32 = 0x08000000;
+
     let system_name = get_system_name();
     println!("System: {:?}", system_name);
     match system_name {
@@ -419,7 +434,11 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
         command.arg(path_clone);
         command.arg(patch_clone);
         command.arg(output_clone);
-        command.creation_flags(no_win);
+        #[cfg(windows)]
+        {
+            let no_win: u32 = 0x08000000;
+            command.creation_flags(no_win);
+        }
 
         println!("Running command: {:?}", command);
         let out = command.output();
@@ -492,8 +511,6 @@ async fn backup_renew(path: String) -> Result<String, String> {
 }
 #[tauri::command]
 async fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<String, String> {
-    use dotenv_codegen::dotenv;
-    use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(timestamp);
     //get salt from .env file
@@ -583,9 +600,67 @@ struct FileCheckResult {
 }
 
 #[tauri::command]
-async fn check_files(files: Vec<String>) -> Result<Vec<FileCheckResult>, String> {
-    use std::fs::OpenOptions;
-    use std::os::windows::fs::OpenOptionsExt;
+async fn check_files(
+    files: Vec<String>,
+    base_path: String,
+    is_zip: bool,
+) -> Result<Vec<FileCheckResult>, String> {
+    let base_path = std::path::Path::new(&base_path);
+    if is_zip {
+        #[cfg(windows)]
+        {
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000; // to open dirs
+                                                                // for zip patches, check if dir is writable
+            let attempt = OpenOptions::new()
+                .write(true)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(&base_path);
+            match attempt {
+                Ok(_dir) => {
+                    return Ok(vec![]);
+                }
+                Err(error) => {
+                    if let Some(code) = error.raw_os_error() {
+                        let reason = match code {
+                            32 | 33 => "Already in use",
+                            5 => "No rw",
+                            _ => "Other",
+                        };
+                        if reason != "Other" {
+                            return Ok(vec![FileCheckResult {
+                                file: base_path
+                                    .file_name()
+                                    .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+                                    .to_string_lossy()
+                                    .to_string(),
+                                reason: reason.to_string(),
+                            }]);
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            // for zip patches, check if dir is writable
+            if std::fs::OpenOptions::new()
+                .write(true)
+                .open(&base_path)
+                .is_err()
+            {
+                return Ok(vec![FileCheckResult {
+                    file: base_path
+                        .file_name()
+                        .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+                        .to_string_lossy()
+                        .to_string(),
+                    reason: "No rw".into(),
+                }]);
+            } else {
+                return Ok(vec![]);
+            }
+        }
+    }
 
     let mut results = Vec::new();
 
@@ -595,33 +670,35 @@ async fn check_files(files: Vec<String>) -> Result<Vec<FileCheckResult>, String>
         if !path.exists() {
             continue;
         }
+        #[cfg(windows)]
+        {
+            let attempt = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(0x0)
+                .open(&path);
 
-        let attempt = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .share_mode(0x0)
-            .open(&path);
-
-        match attempt {
-            Ok(_file) => {}
-            Err(error) => {
-                if let Some(code) = error.raw_os_error() {
-                    let reason = match code {
-                        32 | 33 => "Already in use",
-                        5 => "No rw",
-                        _ => "Other",
-                    };
-                    if reason != "Other" {
-                        // only report targeted reasons
-                        let file_name = path
-                            .file_name()
-                            .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
-                            .to_string_lossy()
-                            .to_string();
-                        results.push(FileCheckResult {
-                            file: file_name,
-                            reason: reason.to_string(),
-                        });
+            match attempt {
+                Ok(_file) => {}
+                Err(error) => {
+                    if let Some(code) = error.raw_os_error() {
+                        let reason = match code {
+                            32 | 33 => "Already in use",
+                            5 => "No rw",
+                            _ => "Other",
+                        };
+                        if reason != "Other" {
+                            // only report targeted reasons
+                            let file_name = path
+                                .file_name()
+                                .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+                                .to_string_lossy()
+                                .to_string();
+                            results.push(FileCheckResult {
+                                file: file_name,
+                                reason: reason.to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -679,6 +756,23 @@ async fn update_the_app(url: String, window: tauri::Window) -> Result<String, St
     println!("Running command: {:?}", command);
     Ok("ok".into())
 }
+
+#[tauri::command]
+fn check_xdelta() -> bool {
+    #[cfg(windows)]
+    {
+        return true; // is bundled
+    }
+    #[cfg(not(windows))]
+    {
+        let check = std::process::Command::new("which").arg("xdelta3").output();
+        match check {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
@@ -700,7 +794,8 @@ fn main() {
             get_temp_dir,
             delete_file,
             check_files,
-            update_the_app
+            update_the_app,
+            check_xdelta
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
