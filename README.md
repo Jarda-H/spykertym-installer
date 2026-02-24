@@ -5,19 +5,31 @@ Instalátor patchů do her.
 
 ## Prerekvizity
 
-[Node.js](https://nodejs.org/en/download), [Rust](https://rust-lang.org/tools/install/)
+[Node.js](https://nodejs.org/en/download), [Rust](https://rust-lang.org/tools/install/), [Xdelta3](https://github.com/jmacd/xdelta) (pouze pro Linux, Windows má exe přibalené do instalačky)
+
+## Instalace
+```bash
+git clone --branch linux --single-branch https://github.com/Jarda-H/spykertym-installer.git
+cd spykertym-installer
+npm i
+```
+#####  Pozn. do budouna plánuji merge linux branch do main
+
+
 
 ## Jak spustit
 
-### Public verze - build
-> Veřejný server
-
-```npm run b```
-
 ### Dev verze
-> (beta server může být kdykoliv vypnut, nemusí být aktuální, avšak může mít nové funkce)
 
-```npm run d```
+```bash
+npm run d
+```
+
+### Build
+
+```bash
+npm run b
+```
 
 ## Problémy
 

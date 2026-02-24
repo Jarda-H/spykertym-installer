@@ -9,38 +9,36 @@ use std::io;
 use std::io::Write;
 use std::process::Command;
 use std::thread;
+use std::time::SystemTime;
 use tauri::Emitter;
+
+
+#[cfg(not(windows))]
+use std::env;
+#[cfg(not(windows))]
+use std::path::PathBuf;
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-#[derive(Debug)]
-enum SystemName {
-    Windows,
-    MacOS,
-    Linux,
-    Unknown,
-}
-
-fn get_system_name() -> SystemName {
-    if cfg!(target_os = "windows") {
-        SystemName::Windows
-    } else if cfg!(target_os = "macos") {
-        SystemName::MacOS
-    } else if cfg!(target_os = "linux") {
-        SystemName::Linux
-    } else {
-        SystemName::Unknown
-    }
-}
-
 #[tauri::command]
 async fn steam_is_installed() -> Result<String, String> {
     #[cfg(not(windows))]
     {
-        Err("TODO".into())
+        // use which steam
+        let check = std::process::Command::new("which").arg("steam").output();
+        match check {
+            Ok(output) => {
+                if output.status.success() {
+                    Ok("true".into())
+                } else {
+                    Err("Steam not installed".into())
+                }
+            }
+            Err(_) => Err("Steam not installed".into()),
+        }
     }
     #[cfg(windows)]
     {
@@ -56,7 +54,7 @@ async fn steam_is_installed() -> Result<String, String> {
             value = subkey.get_value("InstallPath").unwrap();
         }
         if value.is_empty() {
-            return Err("Steam nebyl nalezen".into());
+            return Err("Steam not found".into());
         }
         Ok(value.into())
     }
@@ -66,7 +64,25 @@ async fn steam_is_installed() -> Result<String, String> {
 async fn get_steam_vdf() -> Result<String, String> {
     #[cfg(not(windows))]
     {
-        return Err("TODO".into());
+        let home = env::var("HOME").map_err(|_| "Could not find HOME directory".to_string())?;
+
+        // Standard
+        let mut vdf_path = PathBuf::from(&home);
+        vdf_path.push(".local/share/Steam/steamapps/libraryfolders.vdf");
+
+        // Flatpak
+        if !vdf_path.exists() {
+            vdf_path = PathBuf::from(&home);
+            vdf_path.push(
+                ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/libraryfolders.vdf",
+            );
+        }
+
+        if !vdf_path.exists() {
+            return Err("Steam vdf file not found".into());
+        }
+
+        std::fs::read_to_string(vdf_path).map_err(|e| format!("Failed reading VDF: {}", e))
     }
     #[cfg(windows)]
     {
@@ -82,7 +98,7 @@ async fn get_steam_vdf() -> Result<String, String> {
             value = subkey.get_value("InstallPath").unwrap();
         }
         if value.is_empty() {
-            return Err("Steam nebyl nalezen".into());
+            return Err("Steam not found".into());
         }
         // get steam library - steam path + steamapps/libraryfolders.vdf
         let mut steam_library = value.clone();
@@ -91,7 +107,7 @@ async fn get_steam_vdf() -> Result<String, String> {
         // read libraryfolders.vdf
         let file = std::fs::read_to_string(steam_library);
         if file.is_err() {
-            return Err("Nepodařilo se otevřít soubor libraryfolders.vdf".into());
+            return Err("Failed to read libraryfolders.vdf".into());
         }
         let file = file.unwrap();
         Ok(file)
@@ -346,9 +362,11 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
             if let Err(e) = io::copy(&mut file, &mut outfile) {
                 return Err(format!("Nepodařilo se rozbalit soubor: {}", e));
             }
-
             if let Some(outpath_str) = outpath.to_str() {
+                #[cfg(windows)]
                 extracted_files.push(outpath_str.replace("/", "\\"));
+                #[cfg(not(windows))]
+                extracted_files.push(outpath_str.to_string());
             }
         }
         println!("Extracted {:?} to {:?}", file.name(), outpath);
@@ -370,12 +388,10 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
-    let mut temp_path = std::env::temp_dir();
-
-    let system_name = get_system_name();
-    println!("System: {:?}", system_name);
-    match system_name {
-        SystemName::Windows => {
+    let temp_path = {
+        #[cfg(windows)]
+        {
+            let mut temp_path = std::env::temp_dir();
             let xdelta3 = include_bytes!("./xdelta.exe");
 
             // spawn xdelta in temp
@@ -385,25 +401,32 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
                 let mut file = std::fs::File::create(&temp_path).unwrap();
                 file.write_all(xdelta3).unwrap();
             }
+            temp_path
         }
-        SystemName::Linux => {
+        #[cfg(not(windows))]
+        {
             // check if xdelta3 is installed
             let check = std::process::Command::new("which").arg("xdelta3").output();
             match check {
                 Ok(output) => {
                     if !output.status.success() {
-                        return Err("Nástroj xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
+                        return Err("Package xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
                     }
+                    std::path::PathBuf::from(
+                        String::from_utf8_lossy(&output.stdout)
+                            .trim()
+                            .to_string()
+                    )
                 }
                 Err(_) => {
-                    return Err("Nástroj xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
+                    return Err(
+                        "Package xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu."
+                            .into(),
+                    );
                 }
             }
         }
-        _ => {
-            return Err("Nepodporovaný systém".into());
-        }
-    }
+    };
 
     //if the path ends with .backup, rename it to be without the .backup
     if path.ends_with(".backup") {
@@ -495,6 +518,27 @@ async fn get_md5(path: String) -> Result<String, String> {
         Err(_) => Err("error".into()),
     }
 }
+
+#[tauri::command]
+async fn get_last_modified(path: String) -> Result<String, String> {
+    let metadata = std::fs::metadata(path);
+    match metadata {
+        Ok(metadata) => {
+            let modified_time = metadata.modified();
+            match modified_time {
+                Ok(time) => {
+                    let duration = time
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default();
+                    Ok(duration.as_secs().to_string())
+                }
+                Err(_) => Err("error".into()),
+            }
+        }
+        Err(_) => Err("error".into()),
+    }
+}
+
 #[tauri::command]
 async fn backup_renew(path: String) -> Result<String, String> {
     //if the path ends with .backup, rename it to be without the .backup
@@ -514,6 +558,10 @@ async fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<
     let mut hasher = sha2::Sha256::new();
     hasher.update(timestamp);
     //get salt from .env file
+    match file_exists(".env".to_string()).await {
+        Ok(exists) if exists == "true" => {},
+        _ => return Err("Soubor .env nebyl nalezen".into()),
+    }
     let salt = dotenv!("SALT");
     hasher.update(salt);
     let result = hasher.finalize();
@@ -643,7 +691,7 @@ async fn check_files(
         #[cfg(not(windows))]
         {
             // for zip patches, check if dir is writable
-            if std::fs::OpenOptions::new()
+            if OpenOptions::new()
                 .write(true)
                 .open(&base_path)
                 .is_err()
@@ -701,6 +749,25 @@ async fn check_files(
                         }
                     }
                 }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .is_err()
+            {
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+                    .to_string_lossy()
+                    .to_string();
+                results.push(FileCheckResult {
+                    file: file_name,
+                    reason: "No rw".into(),
+                });
             }
         }
     }
@@ -787,6 +854,7 @@ fn main() {
             unzip_file,
             patch_file,
             get_md5,
+            get_last_modified,
             backup_renew,
             create_sha256_hash_from_timestamp_with_salt,
             delete_temps,

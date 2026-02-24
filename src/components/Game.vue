@@ -326,7 +326,8 @@ export default {
                 total: 0,
                 current: 0
             },
-            platform: getPlatform() || "unknown"
+            platform: getPlatform() || "unknown",
+            md5Cache: []
         };
     },
     mounted() {
@@ -681,7 +682,9 @@ export default {
                             if (path && this.game.patches.length) {
                                 let folder = this.game.patches[this.game_patch_offset].folder;
                                 resolve(
-                                    `${path}\\steamapps\\common\\${folder}`);
+                                    this.normalizePath(
+                                        `${path}\\steamapps\\common\\${folder}`)
+                                )
                             }
                         }).catch((e) => {
                             reject(e);
@@ -801,19 +804,31 @@ export default {
         },
         async getMD5(path) {
             let fileName = await basename(path);
-            debugPrint(`[MD5] Checking ${path}`);
             this.loadingInfo(`Kontrolování souboru <b>${fileName}</b>`);
-            let hash = null;
-            await invoke('get_md5', {
+            let modifiedDate = await invoke('get_last_modified', {
                 path
-            }).then((md5) => {
-                hash = md5;
-            }).catch((e) => {
-                this.unknownErrorAlert(e);
-                hash = null;
+            }).then((date) => {
+                return date;
+            }).catch(() => {
+                debugPrint(`[MD5] Could not get modified date for ${path}`);
+                return null;
             });
-            debugPrint(`[MD5] ${fileName} - ${hash}`);
-            return hash;
+            let key = `${path}_${modifiedDate}`;
+            let cached = this.md5Cache.find(item => item.key === key);
+            if (cached) {
+                debugPrint(`[MD5] Cache hit for ${path}`);
+                return cached.value;
+            }
+            debugPrint(`[MD5] Cache miss for ${path}`);
+            return await invoke('get_md5', {
+                path
+            }).then((hash) => {
+                this.md5Cache.push({ key, value: hash });
+                return hash;
+            }).catch(() => {
+                debugPrint(`[MD5] Could not get MD5 for ${path}`);
+                return null;
+            });
         },
         replaceLastLogLine(text) {
             let logLines = this.installLog.split('<br>');
@@ -975,10 +990,17 @@ export default {
                 jsonLog.push(`[ERROR] Chyba při extrahování zipu - ${err}`);
                 error = true;
             });
+            if (patchFiles.length == 0) {
+                this.installLog += `Zip neobsahuje žádné soubory<br>`;
+                jsonLog.push(`[ERROR] Zip neobsahuje žádné soubory`);
+                error = true;
+            }
             // foreach file run patch
             if (isPatch) {
+                debugPrint(`[install] Patching files:`, patchFiles);
                 await Promise.all(patchFiles.map(async patchFilePath => {
-                    let patchName = patchFilePath.split("\\").pop();
+                    let patchName = await basename(patchFilePath);
+                    debugPrint(`[install] Patch file: ${patchName}`);
                     // and replace .patch at the end
                     if (!patchName.endsWith('.patch')) {
                         this.installLog += `Soubor ${patchName} nekončí .patch<br>`;
@@ -995,7 +1017,10 @@ export default {
                         error = true;
                         return;
                     }
-                    let fileToPatch = this.steamPath + file.path;
+                    let fileToPatch = await joinPath(
+                        this.steamPath,
+                        this.normalizePath(file.path)
+                    );
                     //if backup exists
                     if (this.isBackup && this.game_version == "patched") {
                         fileToPatch += ".backup";
@@ -1022,7 +1047,7 @@ export default {
                 // just copy files
                 let tmp = await invoke('get_temp_dir');
                 await Promise.all(patchFiles.map(async newFile => {
-                    let newFilename = newFile.split("\\").pop();
+                    let newFilename = await basename(newFile);
                     let post = newFile.split(tmp + zipFolder).pop();
                     //upzip path
                     let dest;
@@ -1092,6 +1117,7 @@ export default {
             await this.saveInstalledPatch(this.game_patch_offset);
             this.installStep = installPages.done;
             this.scrollLog();
+            this.md5Cache = [];
         },
         async uninstall() {
             this.uninstallLog = "";
@@ -1119,7 +1145,7 @@ export default {
                     } else {
                         fileToDelete = await joinPath(this.steamPath, this.normalizePath(file.path));
                     }
-                    let filename = fileToDelete.split("\\").pop();
+                    let filename = await basename(fileToDelete);
                     await invoke('delete_file', {
                         path: fileToDelete
                     }).then(() => {
@@ -1131,8 +1157,8 @@ export default {
                     this.scrollLog();
                     return;
                 }
-                let fileToRenew = await joinPath(this.steamPath, this.normalizePath(file.path), ".backup");
-
+                let fileToRenew = await joinPath(this.steamPath, this.normalizePath(file.path) + ".backup");
+                debugPrint(`[uninstall] Renewing file: ${fileToRenew}`);
                 await invoke('backup_renew', {
                     path: fileToRenew
                 }).then(() => {
@@ -1154,6 +1180,7 @@ export default {
             this.game_version = "original";
             this.uninstallStep++;
             this.scrollLog();
+            this.md5Cache = [];
             this.removeGameID(currentGame);
         },
         async sendLogToServer(log, success) {
@@ -1269,7 +1296,10 @@ export default {
             return false;
         },
         async openGame() {
-            let path = this.steamPath + "\\" + this.game.patches[this.game_patch_offset].exe;
+            let path = this.joinPath(
+                this.steamPath,
+                this.game.patches[this.game_patch_offset].exe
+            );
             await openUrl(path).catch((e) => {
                 this.fetchError = true;
                 this.fetchErrorText = `Hru nelze spustit - ${e}`;

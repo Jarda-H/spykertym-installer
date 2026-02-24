@@ -34,11 +34,11 @@ import Popup from "./Popup.vue";
                 <h2>Zpětná vazba</h2>
             </div>
             <div v-if="!prod" class="api-toggle">
-                <label>API Mode:</label>
+                <label>Prod</label>
                 <div class="toggle-switch" @click="toggleAPI">
                     <div class="toggle-slider" :class="{ active: isUsingBeta }"></div>
                 </div>
-                <span class="api-label">{{ isUsingBeta ? 'Beta' : 'Prod' }}</span>
+                <span class="api-label">Beta</span>
             </div>
         </div>
         <div class="btns">
@@ -168,19 +168,14 @@ export default {
             
             if (this.isUsingBeta) {
                 const newEndpoint = 'https://beta.spykertym.cz/app/';
-                // Update global property that all components use
-                this.$root.$globalProperties.API_ENDPOINT = newEndpoint;
-                // Also fallback update for any direct access
                 window.API_ENDPOINT = newEndpoint;
                 localStorage.setItem("api_mode", "beta");
             } else {
                 const newEndpoint = 'https://spykertym.cz/app/';
-                // Update global property that all components use
-                this.$root.$globalProperties.API_ENDPOINT = newEndpoint;
-                // Also fallback update for any direct access
                 window.API_ENDPOINT = newEndpoint;
                 localStorage.setItem("api_mode", "prod");
             }
+            window.location.reload();
         }
     }
 };
