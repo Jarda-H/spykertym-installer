@@ -9,6 +9,7 @@ edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "^2", features = [] }
+dotenv = "0.15"
 
 [dependencies]
 tauri = { version = "^2", features = [
@@ -18,7 +19,6 @@ serde_json = "^1"
 reqwest = { version = "^0.12.14", features = ["json", "stream"] }
 zip = "^2"
 md5 = "^0.7"
-dotenv_codegen = "0.15.0"
 sha2 = "0.10.8"
 tauri-plugin-shell = "^2"
 tauri-plugin-dialog = "^2"

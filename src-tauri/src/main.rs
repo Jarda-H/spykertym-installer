@@ -1,7 +1,6 @@
 // Windows release, remove the console window
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use dotenv_codegen::dotenv;
 use futures::channel::oneshot;
 use sha2::Digest;
 use std::fs::OpenOptions;
@@ -557,12 +556,7 @@ async fn backup_renew(path: String) -> Result<String, String> {
 async fn create_sha256_hash_from_timestamp_with_salt(timestamp: &str) -> Result<String, String> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(timestamp);
-    //get salt from .env file
-    match file_exists(".env".to_string()).await {
-        Ok(exists) if exists == "true" => {},
-        _ => return Err("Soubor .env nebyl nalezen".into()),
-    }
-    let salt = dotenv!("SALT");
+    let salt = env!("SALT");
     hasher.update(salt);
     let result = hasher.finalize();
     Ok(format!("{:x}", result))
