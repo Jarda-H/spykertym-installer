@@ -1,21 +1,25 @@
 # Instalátor Spyker Tým
 
-Instalátor patchů do her.
+Instalátor češtin do her.
 [Web](https://spykertym.cz)
+
+## Určeno pro
+- Windows 11
+- Linux x86_64
 
 ## Prerekvizity
 
-[Node.js](https://nodejs.org/en/download), [Rust](https://rust-lang.org/tools/install/), [Xdelta3](https://github.com/jmacd/xdelta) (pouze pro Linux, Windows má exe přibalené do instalačky)
+- [Node.js](https://nodejs.org/en/download)
+- [Rust](https://rust-lang.org/tools/install/)
+- [Xdelta3](https://github.com/jmacd/xdelta) (pouze pro Linux, Windows má exe přibalené do instalačky)
 
 ## Instalace
 ```bash
-git clone --branch linux --single-branch https://github.com/Jarda-H/spykertym-installer.git
+git clone https://github.com/Jarda-H/spykertym-installer.git
 cd spykertym-installer
 npm i
 ```
-#####  Pozn. do budouna plánuji merge linux branch do main
-
-
+nebo [Releases](https://github.com/Jarda-H/spykertym-installer/releases) (pouze Windows)
 
 ## Jak spustit
 

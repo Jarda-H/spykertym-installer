@@ -999,6 +999,7 @@ export default {
             if (isPatch) {
                 debugPrint(`[install] Patching files:`, patchFiles);
                 await Promise.all(patchFiles.map(async patchFilePath => {
+                    if (error) return;
                     let patchName = await basename(patchFilePath);
                     debugPrint(`[install] Patch file: ${patchName}`);
                     // and replace .patch at the end
@@ -1047,6 +1048,7 @@ export default {
                 // just copy files
                 let tmp = await invoke('get_temp_dir');
                 await Promise.all(patchFiles.map(async newFile => {
+                    if (error) return;
                     let newFilename = await basename(newFile);
                     let post = newFile.split(tmp + zipFolder).pop();
                     //upzip path

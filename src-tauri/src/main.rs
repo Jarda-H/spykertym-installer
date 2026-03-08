@@ -8,9 +8,9 @@ use std::io;
 use std::io::Write;
 use std::process::Command;
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tauri::Emitter;
-
+use tokio::time::sleep;
 
 #[cfg(not(windows))]
 use std::env;
@@ -397,8 +397,8 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
             temp_path.push("xdelta3.exe");
             // if xdelta3.exe doesn't exist, create it
             if !temp_path.exists() {
-                let mut file = std::fs::File::create(&temp_path).unwrap();
-                file.write_all(xdelta3).unwrap();
+                std::fs::write(&temp_path, xdelta3)
+                    .map_err(|e| format!("Nepodařilo se vytvořit xdelta3.exe: {}", e))?;
             }
             temp_path
         }
@@ -412,9 +412,7 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
                         return Err("Package xdelta3 není nainstalován. Prosím nainstalujte jej a zkuste to znovu.".into());
                     }
                     std::path::PathBuf::from(
-                        String::from_utf8_lossy(&output.stdout)
-                            .trim()
-                            .to_string()
+                        String::from_utf8_lossy(&output.stdout).trim().to_string(),
                     )
                 }
                 Err(_) => {
@@ -431,9 +429,10 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     if path.ends_with(".backup") {
         let old_path = std::path::Path::new(&path);
         let new_path = old_path.with_extension("");
-        std::fs::rename(old_path, new_path.clone()).unwrap();
-        //change the path to the new path
-        path = new_path.to_str().unwrap().to_string();
+        tokio::fs::rename(old_path, &new_path)
+            .await
+            .map_err(|e| format!("Chyba při přejmenování zálohy: {}", e))?;
+        path = new_path.to_str().unwrap_or(&path).to_string();
     }
     // let output be path + ".patched"
     let output = format!("{}.patched", path);
@@ -446,6 +445,31 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
 
     // Create a oneshot channel for communicating the result
     let (sender, receiver) = oneshot::channel();
+
+    // wait for xdelta (av checks etc.)
+    #[cfg(windows)]
+    {
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+        loop {
+            match std::process::Command::new(&temp_path)
+                .arg("--help")
+                .output()
+            {
+                Ok(_) => break,
+                Err(e) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(format!("Nepodařilo se spustit xdelta3. {}", e));
+                    }
+                    if !temp_path.exists() {
+                        return Err("Soubor xdelta3 byl smazán.".into());
+                    }
+                    sleep(Duration::from_millis(500)).await;
+                    retries += 1;
+                }
+            }
+        }
+    }
 
     // Spawn a thread to execute the command
     thread::spawn(move || {
@@ -685,11 +709,7 @@ async fn check_files(
         #[cfg(not(windows))]
         {
             // for zip patches, check if dir is writable
-            if OpenOptions::new()
-                .write(true)
-                .open(&base_path)
-                .is_err()
-            {
+            if OpenOptions::new().write(true).open(&base_path).is_err() {
                 return Ok(vec![FileCheckResult {
                     file: base_path
                         .file_name()

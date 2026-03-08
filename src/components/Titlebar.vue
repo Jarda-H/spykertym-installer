@@ -4,6 +4,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { message } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Popup from "./Popup.vue";
+import { cmpVersions } from './helpers/cmpVersion';
+import { invoke } from "@tauri-apps/api/core";
 </script>
 <template>
     <div data-tauri-drag-region class="titlebar">
@@ -42,6 +44,9 @@ import Popup from "./Popup.vue";
             </div>
         </div>
         <div class="btns">
+            <div class="update" @click="updateTheApp" v-if="updateAvailable" title="Dostupná aktualizace">
+                <p>Je dostupná novější verze {{ remoteVersion }}</p>
+            </div>
             <div class="titlebar-btn min" @click="min">
                 <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
                     <path fill="white"
@@ -73,12 +78,15 @@ export default {
             version: "",
             popup: false,
             checkOut: "",
-            isUsingBeta: true
+            isUsingBeta: true,
+            updateAvailable: false,
+            remoteVersion: "",
+            link: "",
         }
     },
     async mounted() {
         this.version = await getVersion();
-        
+
         // Load API mode preference from localStorage
         const savedAPIMode = localStorage.getItem("api_mode");
         if (savedAPIMode === "prod") {
@@ -86,8 +94,42 @@ export default {
         } else {
             this.isUsingBeta = true;
         }
+        this.checkAppUpdates();
     },
     methods: {
+        checkAppUpdates() {
+            fetch(this.API_ENDPOINT + "version")
+                .then((res) => res.json())
+                .then((data) => {
+                    if (data.error) {
+                        console.error("Chyba při kontrole aktualizací:", data.response || "neznámá chyba");
+                        return;
+                    }
+                    this.remoteVersion = data.version;
+                    this.link = data.link;
+                    let cmp = cmpVersions(this.remoteVersion, this.version);
+                    if (cmp) {
+                        console.log(`${cmp} ${this.remoteVersion} > ${this.version}`);
+                        this.updateAvailable = true;
+                    } else //no update
+                        console.log(`${this.remoteVersion} <= ${this.version}`);
+                });
+        },
+        updateTheApp() {
+            invoke("update_the_app", {
+                url: this.link
+            }).catch((e) => {
+                message(
+                    `Aktualizace se nezdařila. Akualizaci si prosím stáhněte z webu nebo to zkuste později. Chyba: ${e}`,
+                    {
+                        okLabel: "OK",
+                        title: "Chyba",
+                        type: "error"
+                    }
+                );
+            });
+            this.updateAvailable = false;
+        },
         min() {
             appWindow.minimize()
         },
@@ -165,7 +207,7 @@ export default {
         },
         toggleAPI() {
             this.isUsingBeta = !this.isUsingBeta;
-            
+
             if (this.isUsingBeta) {
                 const newEndpoint = 'https://beta.spykertym.cz/app/';
                 window.API_ENDPOINT = newEndpoint;
@@ -295,5 +337,17 @@ export default {
 
 .api-label {
     min-width: 30px;
+}
+
+.update {
+    background: #f04e3e;
+    color: white;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+
+    &:hover {
+        background: #f04e3e;
+    }
 }
 </style>

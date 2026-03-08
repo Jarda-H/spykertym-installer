@@ -2,7 +2,7 @@
 import Game from "./components/Game.vue";
 import Menu from "./components/Menu.vue";
 import Titlebar from "./components/Titlebar.vue";
-import UpdateCheck from "./components/UpdateCheck.vue";
+import imgPlaceholder from "./assets/logo.png";
 </script>
 
 <template>
@@ -10,7 +10,6 @@ import UpdateCheck from "./components/UpdateCheck.vue";
   <div class="view" v-if="internet">
     <Menu />
     <Game />
-    <UpdateCheck />
   </div>
   <div class="view" v-else>
     <h1>{{ str.no_internet }}</h1>
@@ -55,6 +54,12 @@ export default {
     window.addEventListener("offline", () => {
       this.internet = false;
     });
+    // img on load error
+    document.addEventListener("error", (e) => {
+      if (e.target.tagName === "IMG") {
+        e.target.src = imgPlaceholder;
+      }
+    }, true);
   },
 };
 </script>
