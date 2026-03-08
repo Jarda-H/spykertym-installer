@@ -21,12 +21,19 @@ app.config.globalProperties.str = {
     }
 }
 
-app.config.globalProperties.API_ENDPOINT = 'https://beta.spykertym.cz/app/';
+// Check for saved API mode preference
+const savedAPIMode = localStorage.getItem("api_mode");
+let apiEndpoint = 'https://beta.spykertym.cz/app/';
+
+app.config.globalProperties.API_ENDPOINT = apiEndpoint;
 app.config.globalProperties.prod = false;
 
 if (process.env.NODE_ENV === 'production') {
     app.config.globalProperties.API_ENDPOINT = 'https://spykertym.cz/app/';
     app.config.globalProperties.prod = true;
+} else if (savedAPIMode === "prod") {
+    // In dev mode, allow switching between beta and prod
+    app.config.globalProperties.API_ENDPOINT = 'https://spykertym.cz/app/';
 }
 function debugPrint(...args) {
     if (!app.config.globalProperties.prod) {
