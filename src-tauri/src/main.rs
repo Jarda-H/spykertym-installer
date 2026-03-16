@@ -790,52 +790,57 @@ async fn check_files(
 }
 #[tauri::command]
 async fn update_the_app(url: String, window: tauri::Window) -> Result<String, String> {
-    let current_exe_name = std::env::current_exe()
-        .map_err(|e| e.to_string())?
+    #[cfg(not(windows))]
+    {
+        return Err("Aktualizace je podporována pouze na Windows. Nejnovější verzi si stáhněte z GitHubu.".into());
+    }
+
+    let current_exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let current_exe_name = current_exe_path
         .file_name()
         .ok_or("Failed to get file name")?
         .to_string_lossy()
         .into_owned();
-    //download the update
-    match download(url, current_exe_name.clone(), window).await {
-        Ok(_) => {
-            println!("Download ok");
-        }
+
+    match download(url, current_exe_name.clone(), window.clone()).await {
+        Ok(_) => println!("Download ok"),
         Err(e) => {
             eprintln!("Download error: {}", e);
             return Err(e);
         }
     }
-    //get temp dir with the downloaded file
-    let temp_dir = std::env::temp_dir().join(current_exe_name.clone());
-    // spawn cmd that will replace the current exe with the downloaded
-    let mut command = std::process::Command::new("cmd");
-    command.arg("/C");
-    // exit the old app
-    command.arg("taskkill");
-    command.arg("/f");
-    command.arg("/im");
-    command.arg(current_exe_name.clone());
-    command.arg("&&");
-    // del the old exe
-    command.arg("del");
-    command.arg("/f");
-    command.arg("/q");
-    command.arg(current_exe_name.clone());
-    command.arg("&&");
-    // move from tmp to current dir
-    command.arg("move");
-    command.arg("/y"); // overwrite
-    command.arg(temp_dir);
-    command.arg(current_exe_name.clone());
-    command.arg("&&");
-    // start the new exe
-    command.arg("start");
-    command.arg(current_exe_name);
-    command.spawn().map_err(|e| e.to_string())?;
 
-    println!("Running command: {:?}", command);
-    Ok("ok".into())
+    let temp_dir = std::env::temp_dir();
+    let temp_file_path = temp_dir.join(&current_exe_name);
+    let bat_file_path = temp_dir.join("updater.bat");
+
+    let bat_content = format!(
+        "@echo off\n\
+        timeout /t 2 /nobreak > NUL\n\
+        move /y \"{}\" \"{}\"\n\
+        start \"\" \"{}\"\n\
+        del \"%~f0\"",
+        temp_file_path.display(),
+        current_exe_path.display(),
+        current_exe_path.display()
+    );
+
+    std::fs::write(&bat_file_path, bat_content).map_err(|e| format!("Failed to write updater.bat: {}", e))?;
+
+    // spawn .bat
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg(&bat_file_path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Failed to spawn updater: {}", e))?;
+    }
+    std::process::exit(0);
 }
 
 #[tauri::command]

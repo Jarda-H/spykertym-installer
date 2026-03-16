@@ -446,6 +446,7 @@ export default {
                     fileToCheck = await joinPath(this.steamPath, this.normalizePath(currentPatch.path));
                 }
                 let md5 = await this.getMD5(fileToCheck);
+                debugPrint(`[MD5] Checking file: ${fileToCheck} | is: ${md5} | original: ${currentPatch.old} | patched: ${currentPatch.new}`);
                 switch (md5) {
                     case currentPatch.new:
                         if (originalFiles) {

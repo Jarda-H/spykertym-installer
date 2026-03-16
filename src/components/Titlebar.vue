@@ -118,17 +118,19 @@ export default {
         updateTheApp() {
             invoke("update_the_app", {
                 url: this.link
-            }).catch((e) => {
-                message(
-                    `Aktualizace se nezdařila. Akualizaci si prosím stáhněte z webu nebo to zkuste později. Chyba: ${e}`,
-                    {
-                        okLabel: "OK",
-                        title: "Chyba",
-                        type: "error"
-                    }
-                );
-            });
-            this.updateAvailable = false;
+            }).then((data) => {
+                this.updateAvailable = false;
+            })
+                .catch((e) => {
+                    message(
+                        `Aktualizace se nezdařila. Akualizaci si prosím stáhněte z webu nebo to zkuste později. Chyba: ${e}`,
+                        {
+                            okLabel: "OK",
+                            title: "Chyba",
+                            type: "error"
+                        }
+                    );
+                });
         },
         min() {
             appWindow.minimize()
