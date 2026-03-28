@@ -387,6 +387,7 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
+    const NO_WINDOW_FLAG: u32 = 0x08000000;
     let temp_path = {
         #[cfg(windows)]
         {
@@ -452,10 +453,13 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
         let mut retries = 0;
         const MAX_RETRIES: u32 = 10;
         loop {
-            match std::process::Command::new(&temp_path)
-                .arg("--help")
-                .output()
+            let mut command = Command::new(&temp_path);
+            command.arg("--help");
+            #[cfg(windows)]
             {
+                command.creation_flags(NO_WINDOW_FLAG);
+            }
+            match command.output() {
                 Ok(_) => break,
                 Err(e) => {
                     if retries >= MAX_RETRIES {
@@ -482,8 +486,7 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
         command.arg(output_clone);
         #[cfg(windows)]
         {
-            let no_win: u32 = 0x08000000;
-            command.creation_flags(no_win);
+            command.creation_flags(NO_WINDOW_FLAG);
         }
 
         println!("Running command: {:?}", command);
@@ -792,7 +795,10 @@ async fn check_files(
 async fn update_the_app(url: String, window: tauri::Window) -> Result<String, String> {
     #[cfg(not(windows))]
     {
-        return Err("Aktualizace je podporována pouze na Windows. Nejnovější verzi si stáhněte z GitHubu.".into());
+        return Err(
+            "Aktualizace je podporována pouze na Windows. Nejnovější verzi si stáhněte z GitHubu."
+                .into(),
+        );
     }
 
     let current_exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -825,7 +831,8 @@ async fn update_the_app(url: String, window: tauri::Window) -> Result<String, St
         current_exe_path.display()
     );
 
-    std::fs::write(&bat_file_path, bat_content).map_err(|e| format!("Failed to write updater.bat: {}", e))?;
+    std::fs::write(&bat_file_path, bat_content)
+        .map_err(|e| format!("Failed to write updater.bat: {}", e))?;
 
     // spawn .bat
     #[cfg(target_os = "windows")]

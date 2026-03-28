@@ -1299,7 +1299,7 @@ export default {
             return false;
         },
         async openGame() {
-            let path = this.joinPath(
+            let path = await joinPath(
                 this.steamPath,
                 this.game.patches[this.game_patch_offset].exe
             );
