@@ -1048,10 +1048,18 @@ export default {
             } else {
                 // just copy files
                 let tmp = await invoke('get_temp_dir');
+                let extractedRoot = this.normalizePath(await joinPath(tmp, zipFolder));
+                if (!extractedRoot.endsWith('/')) {
+                    extractedRoot += '/';
+                }
                 await Promise.all(patchFiles.map(async newFile => {
                     if (error) return;
                     let newFilename = await basename(newFile);
-                    let post = newFile.split(tmp + zipFolder).pop();
+                    let normalizedNewFile = this.normalizePath(newFile);
+                    let post = normalizedNewFile.startsWith(extractedRoot)
+                        ? normalizedNewFile.slice(extractedRoot.length)
+                        : normalizedNewFile;
+                    post = post.replace(/^\/+/, '');
                     //upzip path
                     let dest;
                     if (patch.unzip_path) {

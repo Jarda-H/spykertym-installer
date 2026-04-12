@@ -712,7 +712,12 @@ async fn check_files(
         #[cfg(not(windows))]
         {
             // for zip patches, check if dir is writable
-            if OpenOptions::new().write(true).open(&base_path).is_err() {
+            let is_writable_dir = base_path
+                .metadata()
+                .map(|m| m.is_dir() && !m.permissions().readonly())
+                .unwrap_or(false);
+
+            if !is_writable_dir {
                 return Ok(vec![FileCheckResult {
                     file: base_path
                         .file_name()
