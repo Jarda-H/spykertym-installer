@@ -526,7 +526,9 @@ export default {
                         }
                     }
                     if (tempVersion == "original") {
-                        version = "original";
+                        if (version != "patched") {
+                            version = "original";
+                        }
                         this.canUsePaches.push(i);
                     }
                 }
@@ -1082,6 +1084,9 @@ export default {
                 if (!extractedRoot.endsWith('/')) {
                     extractedRoot += '/';
                 }
+                // dont backup unzipped files, only patched files
+                let installedPatch = this.game_version == "patched" ? this.game.patches[this.gamePatchLocal] : null;
+                let ownFiles = (installedPatch?.files ?? []).map(f => this.normalizePath(f.path));
                 let items = await Promise.all(patchFiles.map(async newFile => {
                     let normalizedNewFile = this.normalizePath(newFile);
                     let post = normalizedNewFile.startsWith(extractedRoot)
@@ -1096,7 +1101,7 @@ export default {
                         dest = await joinPath(this.steamPath, post);
                     }
                     debugPrint(newFile, dest)
-                    return { from: newFile, to: dest, name: await basename(newFile) };
+                    return { from: newFile, to: dest, name: await basename(newFile), own: ownFiles.includes(post) };
                 }));
                 if (!error) {
                     this.installLog += `Začátek kopírování souborů (${items.length})<br>`;

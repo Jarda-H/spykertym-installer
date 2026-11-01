@@ -16,6 +16,7 @@ fn item(dir: &Path, name: &str, content: &str) -> InstallItem {
     InstallItem {
         from: from.to_str().unwrap().into(),
         to: dir.join("game").join(name).to_str().unwrap().into(),
+        own: false,
     }
 }
 
@@ -134,6 +135,7 @@ fn failed_swap_rolls_back_every_file() {
     let b = InstallItem {
         from: from_b.to_str().unwrap().into(),
         to: locked_dir.join("b.pak").to_str().unwrap().into(),
+        own: false,
     };
     let items = [a, new_file, b];
 
@@ -159,6 +161,7 @@ fn stage_failure_touches_no_game_file() {
     let missing = InstallItem {
         from: dir.join("src/missing").to_str().unwrap().into(),
         to: dir.join("game/b.pak").to_str().unwrap().into(),
+        own: false,
     };
 
     assert!(install(&[a, missing]).is_err());

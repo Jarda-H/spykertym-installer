@@ -629,6 +629,7 @@ async fn delete_temps(folder: String) -> Result<String, String> {
 struct InstallItem {
     from: String,
     to: String,
+    own: bool,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -743,7 +744,7 @@ fn commit_files(items: &[InstallItem]) -> Result<Vec<String>, InstallError> {
             continue;
         }
         let backup = with_suffix(&item.to, ".backup");
-        let result = if backup.exists() {
+        let result = if item.own || backup.exists() {
             std::fs::remove_file(&previous)
         } else {
             retry_if_locked(|| std::fs::rename(&previous, &backup))
