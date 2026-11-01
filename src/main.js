@@ -23,7 +23,7 @@ app.config.globalProperties.str = {
 
 // Check for saved API mode preference
 const savedAPIMode = localStorage.getItem("api_mode");
-let apiEndpoint = 'https://beta.spykertym.cz/app/';
+let apiEndpoint = 'http://localhost:8000/app/';
 
 app.config.globalProperties.API_ENDPOINT = apiEndpoint;
 app.config.globalProperties.prod = false;

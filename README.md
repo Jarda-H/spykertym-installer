@@ -19,7 +19,7 @@ git clone https://github.com/Jarda-H/spykertym-installer.git
 cd spykertym-installer
 npm i
 ```
-nebo [Releases](https://github.com/Jarda-H/spykertym-installer/releases) (pouze Windows)
+nebo [Releases](https://github.com/Jarda-H/spykertym-installer/releases) (Windows i Linux)
 
 ## Jak spustit
 

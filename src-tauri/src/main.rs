@@ -156,23 +156,31 @@ async fn download(url: String, filename: String, window: tauri::Window) -> Resul
         return Err(error_msg);
     }
 
-    // Check content type
+    // Check content type (without parameters like "; charset=utf-8")
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .map(|v| v.to_str().unwrap_or(""))
-        .unwrap_or("");
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
 
     // Expected content types for EXE and ZIP files
     let valid_exe_types = [
         "application/vnd.microsoft.portable-executable",
         "application/x-msdownload",
         "application/octet-stream",
+        "binary/octet-stream",
     ];
     let valid_zip_types = [
         "application/zip",
         "application/x-zip-compressed",
+        "application/x-zip",
         "application/octet-stream",
+        "binary/octet-stream",
     ];
 
     let extension = std::path::Path::new(&filename)
@@ -183,9 +191,9 @@ async fn download(url: String, filename: String, window: tauri::Window) -> Resul
 
     // content type == expected file extension
     let is_valid = match extension.as_str() {
-        "exe" => valid_exe_types.contains(&content_type),
-        "zip" => valid_zip_types.contains(&content_type),
-        _ => content_type == "application/octet-stream" || content_type.starts_with("application/"),
+        "exe" => valid_exe_types.contains(&content_type.as_str()),
+        "zip" => valid_zip_types.contains(&content_type.as_str()),
+        _ => content_type == "binary/octet-stream" || content_type.starts_with("application/"),
     };
 
     // check if the content type is valid
@@ -333,11 +341,16 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
         let outpath = output_dir.join(&filepath);
 
-        if (*file.name()).ends_with('/') {
+        let name = match file.name() {
+            Ok(name) => name.into_owned(),
+            Err(e) => return Err(format!("Nepodařilo se přečíst název souboru: {}", e)),
+        };
+
+        if name.ends_with('/') {
             //folder
             println!(
                 "Folder {} extracted to \"{}\"",
-                file.name(),
+                name,
                 outpath.display()
             );
             if let Err(e) = std::fs::create_dir_all(&outpath) {
@@ -368,7 +381,7 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
                 extracted_files.push(outpath_str.to_string());
             }
         }
-        println!("Extracted {:?} to {:?}", file.name(), outpath);
+        println!("Extracted {:?} to {:?}", name, outpath);
     }
 
     // remove the zip file
@@ -796,16 +809,51 @@ async fn check_files(
 
     Ok(results)
 }
+
+fn is_binary_for_this_os(path: &std::path::Path) -> Result<bool, String> {
+    use std::io::Read;
+
+    #[cfg(windows)]
+    const MAGIC: &[u8] = b"MZ";
+    #[cfg(not(windows))]
+    const MAGIC: &[u8] = b"\x7fELF";
+
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut header = [0u8; 4];
+    let read = file.read(&mut header).map_err(|e| e.to_string())?;
+    Ok(header[..read].starts_with(MAGIC))
+}
+
+#[cfg(not(windows))]
+fn replace_exe_and_restart(new_exe: &std::path::Path, exe: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    let mut staged = exe.as_os_str().to_owned();
+    staged.push(".new");
+    let staged = std::path::PathBuf::from(staged);
+
+    std::fs::copy(new_exe, &staged)
+        .map_err(|e| format!("Nepodařilo se zapsat novou verzi: {}", e))?;
+    let replaced = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+        .and_then(|_| std::fs::rename(&staged, exe));
+    if let Err(e) = replaced {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Nepodařilo se nahradit aplikaci: {}", e));
+    }
+    let _ = std::fs::remove_file(new_exe);
+
+    std::process::Command::new(exe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Aplikace byla aktualizována, spusťte ji prosím znovu: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn update_the_app(url: String, window: tauri::Window) -> Result<String, String> {
-    #[cfg(not(windows))]
-    {
-        return Err(
-            "Aktualizace je podporována pouze na Windows. Nejnovější verzi si stáhněte z GitHubu."
-                .into(),
-        );
-    }
-
     let current_exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
     let current_exe_name = current_exe_path
         .file_name()
@@ -823,25 +871,34 @@ async fn update_the_app(url: String, window: tauri::Window) -> Result<String, St
 
     let temp_dir = std::env::temp_dir();
     let temp_file_path = temp_dir.join(&current_exe_name);
-    let bat_file_path = temp_dir.join("updater.bat");
 
-    let bat_content = format!(
-        "@echo off\n\
-        timeout /t 2 /nobreak > NUL\n\
-        move /y \"{}\" \"{}\"\n\
-        start \"\" \"{}\"\n\
-        del \"%~f0\"",
-        temp_file_path.display(),
-        current_exe_path.display(),
-        current_exe_path.display()
-    );
+    if !is_binary_for_this_os(&temp_file_path)? {
+        let _ = std::fs::remove_file(&temp_file_path);
+        return Err("Stažený soubor není určen pro tento systém.".into());
+    }
 
-    std::fs::write(&bat_file_path, bat_content)
-        .map_err(|e| format!("Failed to write updater.bat: {}", e))?;
+    #[cfg(not(windows))]
+    replace_exe_and_restart(&temp_file_path, &current_exe_path)?;
 
     // spawn .bat
     #[cfg(target_os = "windows")]
     {
+        let bat_file_path = temp_dir.join("updater.bat");
+
+        let bat_content = format!(
+            "@echo off\n\
+            timeout /t 2 /nobreak > NUL\n\
+            move /y \"{}\" \"{}\"\n\
+            start \"\" \"{}\"\n\
+            del \"%~f0\"",
+            temp_file_path.display(),
+            current_exe_path.display(),
+            current_exe_path.display()
+        );
+
+        std::fs::write(&bat_file_path, bat_content)
+            .map_err(|e| format!("Failed to write updater.bat: {}", e))?;
+
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 

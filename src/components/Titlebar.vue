@@ -5,6 +5,7 @@ import { message } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Popup from "./Popup.vue";
 import { cmpVersions } from './helpers/cmpVersion';
+import { platform } from '@tauri-apps/plugin-os';
 import { invoke } from "@tauri-apps/api/core";
 </script>
 <template>
@@ -106,7 +107,8 @@ export default {
                         return;
                     }
                     this.remoteVersion = data.version;
-                    this.link = data.link;
+                    const os = platform();
+                    this.link = data.links?.[os] ?? data.link;
                     let cmp = cmpVersions(this.remoteVersion, this.version);
                     if (cmp) {
                         console.log(`${cmp} ${this.remoteVersion} > ${this.version}`);

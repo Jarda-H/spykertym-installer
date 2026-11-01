@@ -12,6 +12,12 @@ import { platform as getPlatform } from '@tauri-apps/plugin-os';
 
 import * as VDF from "vdf-parser";
 import Popup from "./Popup.vue";
+
+const pegiLogos = import.meta.glob("../assets/pegi/PEGI_*.svg", {
+    eager: true,
+    query: "?url",
+    import: "default"
+});
 </script>
 
 <template>
@@ -108,7 +114,7 @@ import Popup from "./Popup.vue";
                 <div class="tab pegi">
                     <h2>PEGI:</h2>
                     <div class="pegi-row">
-                        <img :src="`https://spykertym.cz/uploads/img/PEGI_${game.pegi}.svg`" alt="pegi img">
+                        <img :src="pegiLogos[`../assets/pegi/PEGI_${game.pegi}.svg`]" alt="pegi img">
                         <p v-html="game.pegi_info"></p>
                     </div>
                 </div>
@@ -398,6 +404,11 @@ export default {
                 this.steamHeaderImg = "";
             }
         },
+        getServerURL(url) {
+            if (/^https?:\/\//i.test(url)) return url; // CDN links
+            if (url.startsWith('//')) return `https:${url}`;
+            return this.API_ENDPOINT.replace('app/', '') + url.replace(/^\/+/, '');
+        },
         async checkBackup(fileToCheck, currentPatch) {
             let isZip = this.game.patches[this.game_patch_offset]?.hasOwnProperty('unzip_path');
             let patchPath = fileToCheck + ".backup";
@@ -614,7 +625,7 @@ export default {
             if (!data.game.banner?.url) {
                 this.getSteamHeaderImg(data.game.steam);
             } else {
-                this.steamHeaderImg = this.API_ENDPOINT.replace('app/', '') + data.game.banner.url;
+                this.steamHeaderImg = this.getServerURL(data.game.banner.url);
             }
             // try hashes
             if (this.steamPath) await this.checkFolder(true);
@@ -908,9 +919,9 @@ export default {
             }
 
             let isPatch = patch.files[0].hasOwnProperty('old');
-            let toDownload = patch.zip;
-            let filename = toDownload.split("/").pop();
-            let zipFolder = filename.slice(0, -4);
+            let downloadURL = this.getServerURL(patch.zip);
+            let filename = new URL(downloadURL).pathname.split("/").pop();
+            let zipFolder = filename.replace(/\.[^.]*$/, '');
             let jsonLog = []; //for server logging
             // download this zip
             this.installLog = `Stahuji zip s češtinou<br>`;
@@ -920,11 +931,6 @@ export default {
                 jsonLog.push("[init] Stahování zipu s češtinou");
             }
             let error = false;
-            // if toDownload starts with /, remove it
-            if (toDownload.startsWith("/")) {
-                toDownload = toDownload.slice(1);
-            }
-            let downloadURL = this.API_ENDPOINT.replace('app/', '') + toDownload;
             debugPrint(`[install] Downloading zip: ${downloadURL}`);
 
             // reset from possible previous download
