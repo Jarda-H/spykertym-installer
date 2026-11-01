@@ -518,11 +518,11 @@ export default {
                         if (!this.isBackup) {
                             let checkPath;
                             if (patch.hasOwnProperty('unzip_path')) {
-                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(patch.files[i].path));
+                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.unzip_path), this.normalizePath(patch.files[0].path));
                             } else {
-                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.files[i].path));
+                                checkPath = await joinPath(this.steamPath, this.normalizePath(patch.files[0].path));
                             }
-                            await this.checkBackup(checkPath, patch.files[i]);
+                            await this.checkBackup(checkPath, patch.files[0]);
                         }
                     }
                     if (tempVersion == "original") {
@@ -622,10 +622,10 @@ export default {
                 this.steamPath = gamePath;
             }
             // get header img
-            if (!data.game.banner?.url) {
+            if (!data.game.banner_url) {
                 this.getSteamHeaderImg(data.game.steam);
             } else {
-                this.steamHeaderImg = this.getServerURL(data.game.banner.url);
+                this.steamHeaderImg = this.getServerURL(data.game.banner_url);
             }
             // try hashes
             if (this.steamPath) await this.checkFolder(true);
@@ -878,11 +878,17 @@ export default {
                 return await joinPath(this.steamPath, this.normalizePath(file.path));
             }));
 
-            let fileChecks = await invoke('check_files', {
+            const checkFiles = () => invoke('check_files', {
                 files: filesToCheck,
                 basePath: this.steamPath,
                 isZip
             });
+            let fileChecks = await checkFiles();
+            // av retry
+            for (let attempt = 0; attempt < 3 && fileChecks.some(f => f.reason === 'Already in use'); attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                fileChecks = await checkFiles();
+            }
 
             if (Array.isArray(fileChecks) && fileChecks.length) {
                 const inUse = fileChecks.filter(f => f.reason === 'Already in use').map(f => f.file);
@@ -890,12 +896,8 @@ export default {
 
                 const parts = [];
                 if (inUse.length) {
-                    if (isZip) {
-                        parts.push(`<b>Adresář je již používaný jiným procesem</b>`);
-                    } else {
-                        parts.push(`<b>Soubory jsou používány jiným procesem</b>`);
-                        parts.push(`Soubory: ${inUse.join(', ')}`);
-                    }
+                    parts.push(`<b>Soubory jsou používány jiným procesem</b>`);
+                    parts.push(`Soubory: ${inUse.join(', ')}`);
                     parts.push(`<br><h3>Jak opravit?</h3>`);
                     parts.push(`<b>- Zavřete prosím hru a zkuste to znovu.</b>`);
                     parts.push(`<b>- Pokud problém přetrvává, restartujte počítač.</b>`);
@@ -919,7 +921,7 @@ export default {
             }
 
             let isPatch = patch.files[0].hasOwnProperty('old');
-            let downloadURL = this.getServerURL(patch.zip);
+            let downloadURL = this.getServerURL(patch.zip_url);
             let filename = new URL(downloadURL).pathname.split("/").pop();
             let zipFolder = filename.replace(/\.[^.]*$/, '');
             let jsonLog = []; //for server logging
@@ -986,24 +988,28 @@ export default {
             });
             // extract zip
             let patchFiles = []
-            await invoke('unzip_file', {
-                path: filename
-            }).then((files) => {
-                patchFiles = files;
-                this.installLog += `Zip byl extrahován<br>`;
-                jsonLog.push("[OK] Zip byl extrahován");
-            }).catch((err) => {
-                this.installLog += `Chyba při extrahování zipu - ${err}<br>`;
-                jsonLog.push(`[ERROR] Chyba při extrahování zipu - ${err}`);
-                error = true;
-            });
-            if (patchFiles.length == 0) {
+            if (!error) {
+                await invoke('unzip_file', {
+                    path: filename
+                }).then((files) => {
+                    patchFiles = files;
+                    this.installLog += `Zip byl extrahován<br>`;
+                    jsonLog.push("[OK] Zip byl extrahován");
+                }).catch((err) => {
+                    this.installLog += `Chyba při extrahování zipu - ${err}<br>`;
+                    jsonLog.push(`[ERROR] Chyba při extrahování zipu - ${err}`);
+                    error = true;
+                });
+            }
+            if (!error && patchFiles.length == 0) {
                 this.installLog += `Zip neobsahuje žádné soubory<br>`;
                 jsonLog.push(`[ERROR] Zip neobsahuje žádné soubory`);
                 error = true;
             }
             // foreach file run patch
+            let revertedToOriginal = false;
             if (isPatch) {
+                let patchedBackups = [];
                 debugPrint(`[install] Patching files:`, patchFiles);
                 await Promise.all(patchFiles.map(async patchFilePath => {
                     if (error) return;
@@ -1029,9 +1035,10 @@ export default {
                         this.steamPath,
                         this.normalizePath(file.path)
                     );
+                    let backupPath = fileToPatch + ".backup";
                     //if backup exists
                     if (this.isBackup && this.game_version == "patched") {
-                        fileToPatch += ".backup";
+                        fileToPatch = backupPath;
                     }
                     this.installLog += `Začalo upravování ${file.patch}<br>`;
                     await invoke('patch_file', {
@@ -1040,6 +1047,7 @@ export default {
                     }).then(() => {
                         this.installLog += `Soubor ${file.patch} byl upraven<br>`;
                         jsonLog.push(`[OK] Soubor ${file.patch} byl upraven`);
+                        patchedBackups.push(backupPath);
                     }).catch((err) => {
                         if (err.startsWith("xdelta3: target window checksum mismatch: XD3_INVALID_INPUT")) {
                             this.installLog += `U souboru ${file.patch} - <b>nesedí hash</b>, zkontrolujte jestli už nemáte patch nainstalovaný, popř. ověřte integritu hry<br>`;
@@ -1051,6 +1059,22 @@ export default {
                     });
                     this.scrollLog();
                 }));
+                // keep all files on one version
+                if (error && patchedBackups.length) {
+                    let rollbackError = false;
+                    for (const backup of patchedBackups) {
+                        await invoke('backup_renew', { path: backup }).catch((err) => {
+                            jsonLog.push(`[ERROR] Nepodařilo se vrátit ${backup} - ${err}`);
+                            rollbackError = true;
+                        });
+                    }
+                    if (rollbackError) {
+                        this.installLog += `<b>Některé soubory se nepodařilo vrátit, ověřte integritu hry ve Steamu</b><br>`;
+                    } else {
+                        this.installLog += `Upravené soubory byly vráceny do původního stavu<br>`;
+                        revertedToOriginal = this.game_version == "patched";
+                    }
+                }
             } else {
                 // just copy files
                 let tmp = await invoke('get_temp_dir');
@@ -1058,9 +1082,7 @@ export default {
                 if (!extractedRoot.endsWith('/')) {
                     extractedRoot += '/';
                 }
-                await Promise.all(patchFiles.map(async newFile => {
-                    if (error) return;
-                    let newFilename = await basename(newFile);
+                let items = await Promise.all(patchFiles.map(async newFile => {
                     let normalizedNewFile = this.normalizePath(newFile);
                     let post = normalizedNewFile.startsWith(extractedRoot)
                         ? normalizedNewFile.slice(extractedRoot.length)
@@ -1074,21 +1096,34 @@ export default {
                         dest = await joinPath(this.steamPath, post);
                     }
                     debugPrint(newFile, dest)
-                    this.installLog += `Začátek kopírování souboru ${newFilename}<br>`;
-                    await invoke('copy_and_replace', {
-                        from: newFile,
-                        to: dest
-                    }).then(() => {
-                        this.installLog += `Soubor ${newFilename} byl zkopírován<br>`;
-                        jsonLog.push(`[OK] Soubor ${newFilename} byl zkopírován`);
-                    }).catch((err) => {
-                        this.installLog += `Chyba při kopírování souboru ${newFilename} - ${err}<br>`;
-                        jsonLog.push(`[ERROR] Chyba při kopírování souboru ${newFilename} - ${err}`);
-                        jsonLog.push(`[ERROR] from: ${newFile} to: ${dest}`)
+                    return { from: newFile, to: dest, name: await basename(newFile) };
+                }));
+                if (!error) {
+                    this.installLog += `Začátek kopírování souborů (${items.length})<br>`;
+                    this.scrollLog();
+                    await invoke('install_files', { items }).then((warnings) => {
+                        this.installLog += `Soubory byly zkopírovány<br>`;
+                        items.forEach(item => jsonLog.push(`[OK] Soubor ${item.name} byl zkopírován`));
+                        warnings.forEach(warning => jsonLog.push(`[WARN] ${warning}`));
+                    }).catch(async (err) => {
+                        let filename = await basename(err.to);
+                        if (err.error.includes('os error 32')) {
+                            this.installLog += `Soubor ${filename} používá jiný proces - <b>zavřete hru a zkuste to znovu</b><br>`;
+                        } else {
+                            this.installLog += `Chyba při kopírování souboru ${filename} - ${err.error}<br>`;
+                        }
+                        if (err.rollback_failed.length) {
+                            this.installLog += `<b>Některé soubory se nepodařilo vrátit, ověřte integritu hry ve Steamu</b><br>`;
+                            jsonLog.push(`[ERROR] Nepodařilo se vrátit: ${err.rollback_failed.join(', ')}`);
+                        } else {
+                            this.installLog += `Hra zůstala v původním stavu<br>`;
+                        }
+                        jsonLog.push(`[ERROR] Chyba při kopírování souboru ${filename} - ${err.error}`);
+                        jsonLog.push(`[ERROR] from: ${err.from} to: ${err.to}`);
                         error = true;
                     });
                     this.scrollLog();
-                }));
+                }
             }
             // delete patch files
             if (patchFiles.length) {
@@ -1099,8 +1134,7 @@ export default {
                     jsonLog.push("[OK] Patch soubory byly smazány");
                 }).catch((err) => {
                     this.installLog += `Chyba při mazání - ${err}<br>`;
-                    jsonLog.push(`[ERROR] Chyba při mazání - ${err}`);
-                    error = true;
+                    jsonLog.push(`[WARN] Chyba při mazání - ${err}`);
                 });
                 this.scrollLog();
             }
@@ -1114,6 +1148,11 @@ export default {
                     } catch (err) {
                         this.installLog += `Chyba při odesílání chyby - ${err}<br>`;
                     }
+                }
+                if (revertedToOriginal) {
+                    this.isBackup = false;
+                    this.game_version = "original";
+                    this.removeGameID(this.getActiveGameID());
                 }
                 this.installStep = installPages.error;
                 this.scrollLog();
@@ -1163,6 +1202,20 @@ export default {
                         fileToDelete = await joinPath(this.steamPath, this.normalizePath(file.path));
                     }
                     let filename = await basename(fileToDelete);
+                    let backup = fileToDelete + ".backup";
+                    // always restore a backup
+                    if (await invoke('file_exists', { path: backup }) == "true") {
+                        await invoke('backup_renew', {
+                            path: backup
+                        }).then(() => {
+                            this.uninstallLog += `Soubor ${filename} byl obnoven<br>`;
+                        }).catch((err) => {
+                            this.uninstallLog += `Soubor ${filename} nelze obnovit - ${err}<br>`;
+                            error = true;
+                        });
+                        this.scrollLog();
+                        return;
+                    }
                     await invoke('delete_file', {
                         path: fileToDelete
                     }).then(() => {

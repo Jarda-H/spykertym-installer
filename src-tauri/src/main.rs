@@ -348,11 +348,7 @@ async fn unzip_file(path: String) -> Result<Vec<String>, String> {
 
         if name.ends_with('/') {
             //folder
-            println!(
-                "Folder {} extracted to \"{}\"",
-                name,
-                outpath.display()
-            );
+            println!("Folder {} extracted to \"{}\"", name, outpath.display());
             if let Err(e) = std::fs::create_dir_all(&outpath) {
                 return Err(format!("Nepodařilo se vytvořit složku: {}", e));
             }
@@ -514,17 +510,18 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
 
     match out {
         Ok(out) => {
-            let output_xdelta = String::from_utf8(out.stderr).unwrap();
+            let output_xdelta = String::from_utf8_lossy(&out.stderr).to_string();
             if output_xdelta.is_empty() {
                 // backup the original file
                 let backup = format!("{}.backup", path);
-                std::fs::copy(&path, &backup).unwrap();
+                retry_if_locked(|| std::fs::copy(&path, &backup))
+                    .map_err(|e| format!("Nepodařilo se vytvořit zálohu: {}", e))?;
                 // rename the patched file to the original file
                 let path = std::path::Path::new(&path);
                 // set patch path, its path + .patched
                 let output_path = std::path::Path::new(&output);
                 println!("try to rename {:?} to {:?}", output_path, path);
-                match std::fs::rename(output_path, &path) {
+                match retry_if_locked(|| std::fs::rename(output_path, &path)) {
                     Ok(_) => {
                         if !path.exists() {
                             println!("Rename wasn't successful");
@@ -545,17 +542,24 @@ async fn patch_file(mut path: String, patch: String) -> Result<String, String> {
     }
 }
 
+fn md5_of_file(path: &str) -> io::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut context = md5::Context::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        context.consume(&buffer[..read]);
+    }
+    Ok(format!("{:x}", context.compute()))
+}
+
 #[tauri::command]
 async fn get_md5(path: String) -> Result<String, String> {
-    let content = std::fs::read(path);
-    match content {
-        Ok(content) => {
-            let hash = md5::compute(content);
-            //return the hash as string
-            Ok(format!("{:x}", hash))
-        }
-        Err(_) => Err("error".into()),
-    }
+    md5_of_file(&path).map_err(|_| "error".to_string())
 }
 
 #[tauri::command]
@@ -607,13 +611,8 @@ async fn delete_temps(folder: String) -> Result<String, String> {
     // also del the xdelta3.exe
     let mut temp_path = std::env::temp_dir();
     temp_path.push("xdelta3.exe");
-    if temp_path.exists() {
-        std::fs::remove_file(temp_path.clone()).unwrap();
-        // check if it was removed
-        if temp_path.exists() {
-            return Err("Nepodařilo se odstranit xdelta3.exe".into());
-        }
-    }
+    // av
+    let _ = std::fs::remove_file(&temp_path);
     // delete the folder (temp folder + folder name)
     let mut folder_del = std::env::temp_dir();
     folder_del.push(folder);
@@ -626,39 +625,142 @@ async fn delete_temps(folder: String) -> Result<String, String> {
     Ok("ok".into())
 }
 
-#[tauri::command]
-async fn copy_and_replace(from: String, to: String) -> Result<String, String> {
-    let from = std::path::Path::new(&from);
-    let to = std::path::Path::new(&to);
-    if !from.exists() || !from.is_file() {
-        return Err("File doesn't exist".into());
-    }
+#[derive(serde::Deserialize)]
+struct InstallItem {
+    from: String,
+    to: String,
+}
 
-    // Create parent directories if they don't exist
-    if let Some(parent) = to.parent() {
-        if !parent.exists() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                return Err(format!(
-                    "Nepodařilo se vytvořit adresářovou strukturu: {}",
-                    e
-                ));
-            }
-        }
-    }
+#[derive(serde::Serialize, Debug)]
+struct InstallError {
+    from: String,
+    to: String,
+    error: String,
+    rollback_failed: Vec<String>,
+}
 
-    if to.exists() {
-        // rename to backup
-        let backup = format!("{}.backup", to.to_str().unwrap());
-        match std::fs::rename(to, backup) {
-            Ok(_) => {}
-            Err(e) => return Err(e.to_string()),
+impl InstallError {
+    fn new(item: &InstallItem, error: std::io::Error, rollback_failed: Vec<String>) -> Self {
+        InstallError {
+            from: item.from.clone(),
+            to: item.to.clone(),
+            error: error.to_string(),
+            rollback_failed,
         }
-    }
-    match std::fs::copy(from, to) {
-        Ok(_) => Ok("Ok".into()),
-        Err(e) => Err(e.to_string()),
     }
 }
+
+fn with_suffix(path: &str, suffix: &str) -> std::path::PathBuf {
+    format!("{}{}", path, suffix).into()
+}
+
+fn staged_path(item: &InstallItem) -> std::path::PathBuf {
+    with_suffix(&item.to, ".spyker-new")
+}
+
+fn retry_if_locked<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    const MAX_RETRIES: u32 = 5;
+    const DELAY: Duration = Duration::from_millis(500);
+    let mut retries = 0;
+    loop {
+        match operation() {
+            // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+            Err(e) if retries < MAX_RETRIES && matches!(e.raw_os_error(), Some(32 | 33)) => {
+                retries += 1;
+                thread::sleep(DELAY);
+            }
+            result => return result,
+        }
+    }
+}
+
+fn previous_path(item: &InstallItem) -> std::path::PathBuf {
+    with_suffix(&item.to, ".spyker-old")
+}
+
+fn remove_staged(items: &[InstallItem]) {
+    for item in items {
+        let _ = std::fs::remove_file(staged_path(item));
+    }
+}
+
+fn stage_files(items: &[InstallItem]) -> Result<(), InstallError> {
+    for item in items {
+        let parent = std::path::Path::new(&item.to).parent();
+        let result = parent
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|_| std::fs::copy(&item.from, staged_path(item)).map(|_| ()));
+        if let Err(e) = result {
+            remove_staged(items);
+            return Err(InstallError::new(item, e, vec![]));
+        }
+    }
+    Ok(())
+}
+
+fn swap_in_file(item: &InstallItem) -> std::io::Result<()> {
+    let previous = previous_path(item);
+    if std::path::Path::new(&item.to).exists() && !previous.exists() {
+        retry_if_locked(|| std::fs::rename(&item.to, &previous))?;
+    }
+    retry_if_locked(|| std::fs::rename(staged_path(item), &item.to))
+}
+
+fn restore_file(item: &InstallItem) -> std::io::Result<()> {
+    let previous = previous_path(item);
+    if previous.exists() {
+        return retry_if_locked(|| std::fs::rename(&previous, &item.to));
+    }
+
+    match retry_if_locked(|| std::fs::remove_file(&item.to)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+fn commit_files(items: &[InstallItem]) -> Result<Vec<String>, InstallError> {
+    for (index, item) in items.iter().enumerate() {
+        let Err(error) = swap_in_file(item) else {
+            continue;
+        };
+        let mut rollback_failed = Vec::new();
+        if previous_path(item).exists() && restore_file(item).is_err() {
+            rollback_failed.push(item.to.clone());
+        }
+        for done in items[..index].iter().rev() {
+            if restore_file(done).is_err() {
+                rollback_failed.push(done.to.clone());
+            }
+        }
+        remove_staged(items);
+        return Err(InstallError::new(item, error, rollback_failed));
+    }
+
+    let mut warnings = Vec::new();
+    for item in items {
+        let previous = previous_path(item);
+        if !previous.exists() {
+            continue;
+        }
+        let backup = with_suffix(&item.to, ".backup");
+        let result = if backup.exists() {
+            std::fs::remove_file(&previous)
+        } else {
+            retry_if_locked(|| std::fs::rename(&previous, &backup))
+        };
+        if let Err(e) = result {
+            warnings.push(format!("{}: {}", item.to, e));
+        }
+    }
+    Ok(warnings)
+}
+
+#[tauri::command]
+async fn install_files(items: Vec<InstallItem>) -> Result<Vec<String>, InstallError> {
+    stage_files(&items)?;
+    commit_files(&items)
+}
+
 #[tauri::command]
 async fn get_temp_dir() -> Result<String, String> {
     Ok(std::env::temp_dir().to_str().unwrap().to_string())
@@ -698,9 +800,7 @@ async fn check_files(
                 .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
                 .open(&base_path);
             match attempt {
-                Ok(_dir) => {
-                    return Ok(vec![]);
-                }
+                Ok(_dir) => {}
                 Err(error) => {
                     if let Some(code) = error.raw_os_error() {
                         let reason = match code {
@@ -848,7 +948,12 @@ fn replace_exe_and_restart(new_exe: &std::path::Path, exe: &std::path::Path) -> 
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("Aplikace byla aktualizována, spusťte ji prosím znovu: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Aplikace byla aktualizována, spusťte ji prosím znovu: {}",
+                e
+            )
+        })?;
     Ok(())
 }
 
@@ -946,7 +1051,7 @@ fn main() {
             backup_renew,
             create_sha256_hash_from_timestamp_with_salt,
             delete_temps,
-            copy_and_replace,
+            install_files,
             get_temp_dir,
             delete_file,
             check_files,
@@ -956,3 +1061,6 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests;
